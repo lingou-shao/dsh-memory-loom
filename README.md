@@ -44,25 +44,36 @@
 
 | 贴什么 | 例子 | 特点 |
 | --- | --- | --- |
-| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.10/dsh-memory-loom-0.2.10.tgz` | 版本钉死，装到的就是这一版 |
+| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.12/dsh-memory-loom-0.2.12.tgz` | 版本钉死，装到的就是这一版 |
 | **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，能拿到最新提交，但每次装到的内容会变 |
 | **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
 DSH 用 pnpm 把包装进 profile（`~/.dsh/profiles/<profile>/node_modules`），并自动把 `dsh-memory-loom` 写进该 profile 的 bundle 列表。包内 `package.json` 声明了 `dsh.bundle.patch`，组合器据此读取 `cordis.patch.yml`，**不需要手改任何配置**；数据库默认落在 `$DSH_HOME/memory/loom.db`。
 
-**装完重启 DSH。** 插件是在启动时组合进上下文的，不重启不会出现。
+**装上就生效，通常不用重启。**
 
-重启后确认两件事：
+DSH 的插件管理器是**即时重组（live reconcile）**：pnpm 一装完，它就把 `dsh-memory-loom` 追加进 profile 的 bundle 列表、读包里的 `cordis.patch.yml`、激活这一层并调用插件的 `apply()`，然后把新的工具 schema 推给**正在运行的那个会话**。实测时间线：
 
-1. 新开一个会话，让模型「查一下记忆里有什么」：工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 9 个 `memory_*` 工具，就说明挂钩成功。
-2. `%USERPROFILE%\.dsh\memory\loom.db`（Linux/macOS 是 `~/.dsh/memory/loom.db`）被创建，旁边多一个 `diary/` 目录。
+```
+20:05:09  dsh plugin add 跑完，profile 的 package.json 被 pnpm 改写
+20:05:11  loom.db 被创建            ← 就是它调用了 apply()
+```
 
-如果安装被拒绝并提示 `incompatible-version`，那是插件声明的 DSH 版本范围与当前 DSH 对不上：请提 issue 说明你的 DSH 版本（本包对 `@deepseek-ai/dsh-tools` 的声明已经放宽到 `>=0.2.1-rc.2 <2`，正常情况下不会触发）。
+宿主主进程此前已经在跑（不需要新进程），当前会话的 id 也没变，只是收到一条 `### Updated Tool Schemas` 注入，9 个 `memory_*` 工具当场出现在工具列表里。
+
+通常几秒内就能确认两件事：
+
+1. 工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 9 个 `memory_*` 工具。**不必新开会话**——当前会话会被刷新。若迟迟不出现，再重启 DSH（旧版宿主可能不支持热加载），或先排除下面「安装被拒绝」那种情况。
+2. `%USERPROFILE%\.dsh\memory\loom.db`（Linux/macOS 是 `~/.dsh/memory/loom.db`）被创建。**`diary/` 目录不会跟着出现**——它是懒创建的，要等第一条日记落盘才建；刚装好看不到那个目录是正常的，不是没生效。
+
+> 注意区分：热加载只负责**挂载工具**。真正开始积累记忆（写事件、写日记）要等**整合**触发——单会话累计 2 万 token，或空闲 5 分钟。装完立刻问「你还记得什么」，答案当然是空的。
+
+如果安装被拒绝并提示 `incompatible-version`，那是插件声明的 DSH 版本范围与当前 DSH 对不上。本包声明的是 `engines.dsh: ">=0.2.1-rc.2 <0.3.0"`，DSH 的预检优先读这个字段，读到就不再逐个比对 `peerDependencies`，所以报错只会有一项（`engines.dsh`），比一长串 peer 列表好定位。上限定在 `<0.3.0` 是**故意的**：插件用到 `defineTool`、`systemPrompt.section`、session 事件这些宿主内部面，0.3 改语义时它不会自动知道——装不上比装上了坏掉好。提 issue 时请附上你的 DSH 版本。
 
 ### 方式二：tarball（离线 / 内网）
 
 ```bash
-npm install ./dsh-memory-loom-0.2.10.tgz
+npm install ./dsh-memory-loom-0.2.12.tgz
 ```
 
 ### 方式三：手动挂载
@@ -87,6 +98,8 @@ cd dsh-memory-loom
 npm install        # 安装 peer/dev 依赖
 npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 ```
+
+`test/` 虽然随包发布，但**在安装位置直接跑 `npm test` 是跑不起来的**——`lib/index.js` 要 import `@deepseek-ai/dsh-tools`，DSH 里由宿主解析，普通 `node` 进程里没有那份 `node_modules`。自测脚本会打印一句提示让你回仓库跑，不会甩一屏堆栈。
 
 仓库直接以构建产物发布（`lib/index.js` 即完整插件），没有独立的源码目录和构建步骤；`npm run build` / `typecheck` 已随 v0.2.5 移除。改动后的验证方式是 `npm test` 加上仓库外脚手架里的端到端场景。
 
@@ -141,7 +154,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | `retrieval.layerPenalty.*`                                | `fact 0 / event .04 / subjective .02 / l0 .15` | 层级成本惩罚                        |
 | `diary.mirror`                                            | `true`                                         | 是否把日记导出成人能直接读的 Markdown（Q63，v0.2.9 新增） |
 | `diary.mirrorDir`                                         | `diary`                                        | 镜像目录。相对路径按**数据库所在目录**解析，不写死任何绝对路径 |
-| `diary.mirrorDays`                                        | `14`                                           | 启动时重写最近多少个「有日记的日子」                |
+| `diary.mirrorDays`                                        | `14`                                           | 插件装载时回写最近多少个「有日记的日子」                |
 | `roles.visitorPurgeHours`                                 | `48`                                           | 路人原始对话保留时长                    |
 | `roles.pendingDeleteDays`                                 | `7`                                            | 删除冷静期                         |
 | `roles.promotionVisits` / `.demotionDays`                 | `3` / `5`                                      | 路人转朋友 / 朋友回落                  |
@@ -275,7 +288,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 > 由 memory-loom 从 diary 表导出，只读镜像；以数据库为准。
 ```
 
-导出时机：插件加载时回写最近 `diary.mirrorDays`（默认 14）天，之后每次维护 tick 检查最近两天，只在内容变了（条数或时间戳变了）才重写。目录写不进去不会影响主流程——条照旧进数据库，每 tick 重试一次，日志里给一条 warn。`memory_profile` 会打印这个目录的绝对路径，那就是用户找日记的入口。
+导出时机：插件加载时回写最近 `diary.mirrorDays`（默认 14）天，之后每次维护 tick 检查最近两天，只在内容变了（条数或时间戳变了）才重写。**目录是懒创建的**：库里一条日记都没有时不建 `diary/`，第一次写日记才 mkdir。目录写不进去不会影响主流程——条照旧进数据库，每 tick 重试一次，日志里给一条 warn。`memory_profile` 会打印这个目录的绝对路径，那就是用户找日记的入口。
 
 ---
 
@@ -418,10 +431,57 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 1. **peerDependencies 收窄成「只声明真正 import 的」。** 原来声明了 6 个 `@deepseek-ai/*`，其中 5 个（`dsh-agent` / `dsh-llm` / `dsh-session` / `dsh-system-prompt` / `cordis`）代码里根本没有 import；只有 `dsh-tools`（`defineTool`）和 `schemastery`（schema）是真依赖。多声明的部分会被 DSH 的兼容性预检逐个比对运行时版本，**不满足就直接拒绝安装**。
 2. **版本范围放开上界。** 原来的 `^0.2.1-rc.2` 等价于 `>=0.2.1-rc.2 <0.3.0`——DSH 一旦发布 0.3.0，所有人重装这个插件都会被判 `incompatible-version`。现在写成 `>=0.2.1-rc.2 <2`，与生态里其它插件的写法一致（对照 `@dsh-external/dsh-blender-plugin` 用的是 `>=0.0.1-rc <2`）。
 3. **补 `repository` / `bugs` / `homepage`。** 插件卡片和 issue 入口都靠它，之前是空的。
-4. **§2 安装章节重写。** 写清三种可填的地址、本地路径必须是绝对路径、**装完要重启 DSH**、以及重启后怎么确认真的挂上了。
+4. **§2 安装章节重写。** 写清三种可填的地址、本地路径必须是绝对路径、以及装完怎么确认真的挂上了。〔当时写了「**装完要重启 DSH**」，v0.2.12 已更正：实测装上即生效，不需要重启〕
 5. **`loom-e2e/REPORT.md` 随包发布**（脚手架脚本仍不进包）。装完之后想核对「它到底测过什么」，不必再跑回 GitHub 找。
 
 依赖树本身没有变小——`@deepseek-ai/dsh-tools` 自带 `dsh-agent` / `dsh-llm` / `dsh-session` 等传递依赖，装一次约 17 MB / 25 个包，这一点无法绕开（除非不用 `defineTool`）。`defineTool` 是纯函数（校验参数后返回普通对象，没有跨实例状态），所以它加载的副本与宿主不是同一份也不影响运行。
+
+> **实测修正**：上面那句「25 个包 / 17 MB」只在 pnpm 12 下成立。DSH 桌面端用的是 pnpm 11.28.5，**它不安装 peer**，实际只 `+6 packages`（包本体 + `schemastery` + `cosmokit` 等），`dsh-tools` 由宿主在运行时解析。所以插件里那句 peer 声明只是「版本契约」，不产生下载。
+
+### v0.2.11：装进真机之后才知道的四件事
+
+上一版是「pnpm 装得通」；这一版是「装进 DSH 用起来对不对」。四个问题都来自真机，不是推演：
+
+1. **`schemastery` 同时写在 `dependencies` 和 `peerDependencies`** —— 必然触发 pnpm 的 peer 警告，还多拉一个副本。删掉 peer 里那份，只留 `dependencies`（DSH 环境里 peer 根本不装，留着只误导）。
+2. **加了 `engines.dsh: ">=0.2.1-rc.2 <0.3.0"`。** DSH 的兼容性预检优先读这个字段，读到就不再逐个比对 `peerDependencies` 里的 `@deepseek-ai/dsh-*`，比靠 peer 范围兜着精确。上限定 `<0.3.0` 是**故意的**：插件用到 `defineTool`、`systemPrompt.section`、session 事件这些宿主内部面，0.3 改语义时它不会自动知道——装不上比装上了坏掉好。
+3. **`npm test` 在安装位置不再甩堆栈。** `test/` 随包发布，但 `lib/index.js` 要 import `@deepseek-ai/dsh-tools`，而 DSH 的 pnpm 不装 peer、宿主解析在裸 `node` 进程里不存在，所以直接跑必然 `ERR_MODULE_NOT_FOUND`。现在脚本捕获这个错误，打印「回仓库 clone 后 `npm install && npm test`」就退出。
+4. **`diary/` 是懒创建的。** 库里一条日记都没有时不会建目录——之前 README 写「重启后旁边多一个 `diary/`」，那是错的。现在写清：第一篇日记落盘后才出现。
+
+### v0.2.12：更正「必须重启」，并补上热加载漏挂的三块
+
+**文档部分**：更正一个流传了几版的错误说法。
+
+前面几版一直写着「装完重启 DSH，不重启不会出现」。这句话是**照着旧版宿主的行为写的，没有实测**。在真机上装一次就把这个说法证伪了：
+
+| 事实 | 时间戳 |
+| --- | --- |
+| 宿主主进程启动 | 19:58:15 |
+| `dsh plugin add` 跑完（profile 的 `package.json` 被 pnpm 改写） | 20:05:09 |
+| `loom.db` 被创建（= 插件的 `apply()` 执行） | 20:05:11 |
+
+宿主进程从头到尾没重启过（所有 `DeepSeek Harness` 主进程的 `StartTime` 都是 19:58:15），会话 id 也没变。所以建库的是那个 6 分钟前就启动的老进程。
+
+1. **§2 安装章节更正为「装上就生效，通常不用重启」。** 写清 DSH 的机制叫即时重组（live reconcile）：装完 → 追进 bundle 列表 → 读 `cordis.patch.yml` → 调 `apply()` → 把新工具 schema 推给正在运行的会话（表现为一条 `### Updated Tool Schemas` 注入）。重启只作为「迟迟不出现」时的兜底手段。原来的写法把门槛写高了。
+2. **「新开一个会话才看得到工具」也一并改掉。** 实测当前会话当场就被刷新了，不必新开。
+3. **补一句区分**：热加载只管挂载工具，记忆要等**整合**（2 万 token 或空闲 5 分钟）才开始积累。否则刚装完问「你记得什么」得到空答案，会被误当成没装上。
+4. **`incompatible-version` 那段改准。** 之前还写着「声明已放宽到 `>=0.2.1-rc.2 <2`」，那是 v0.2.10 的说法；v0.2.11 已经改成 `engines.dsh: ">=0.2.1-rc.2 <0.3.0"` 并收窄了 peer。现在按实际声明写，并说明预检读到 `engines.dsh` 就会短路，所以报错只有一项。
+
+**代码部分**：顺着「装完即生效」这个事实往下查，发现热加载漏了一半。
+
+`apply()` 把三块按会话注册的内容（人设卡、钩子索引块、记忆块）挂在 `agent/created` 事件上。但热加载时**那个会话的 agent 早就创建好了**——事件不会再触发，于是这三块一块都挂不上。而当时实测确认「9 个工具」和「两个 prompt 块」都在，恰恰因为那两样是**全局**的：工具走 `ctx.tools.register`，两个协议块走 `ctx.systemPrompt.section`（不按会话）。
+
+结果就是：装完插件，工具能调，但当前会话的系统提示里没有记忆块——模型得先想到去搜，才知道有记忆。用探针固定了这个差异（`loom-e2e/probe-hotload.mjs`，模拟「agent 先存在、插件后组合」）：
+
+```
+修复前：protocol ✓  index-protocol ✓  persona ✗  hooks ✗  memory ✗  工具 ✓
+修复后：protocol ✓  index-protocol ✓  persona ✓  hooks ✓  memory ✓  工具 ✓
+```
+
+5. **`apply()` 时补挂已存在的会话**：从宿主的 `agents` 服务（`ctx.get("agents", false)`，`AgentRegistry.list()`）取当前所有 live agent，逐个 `attachAgent`。`attachAgent` 本身有幂等保护（`agentDisposers.has(sessionId)` 直接返回），不会重复挂。
+6. **`turn-stopping` 兜底**：万一宿主不暴露 `agents` 服务（或 `list()` 不可用），就在每轮结束时补一次——下一轮生效，总比永远不生效好。
+7. **卸载时清理按会话的 section**：新增 `ctx.effect("memory-loom:agents")`，插件被卸载（含热重组）时把 `agentDisposers` 里的全部撤掉。否则反复重组会在同一个 agent 上叠同名 section。
+
+这三条都只在「插件中途装载」这个场景下起作用，正常启动路径的行为一个字节没变。
 
 ---
 
@@ -468,7 +528,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | `loom.db` | ✅ 必需 | 全部记忆：原始对话、事实、事件、自我叙事、索引与整理版正文 |
 | `loom.db-wal` | ⚠️ 存在就必须一起拷 | 最近尚未合并回主库的写入。只拷 `loom.db` 会丢掉最近这段对话 |
 | `loom.db-shm` | 可忽略 | 只是共享内存索引，会自动重建 |
-| `diary/` | 可选 | v0.2.9 起的日记 Markdown 镜像。**它是只读导出，不是真相来源**：启动时会把最近 14 天重写一遍，更早的日子不会自动回来（库里的条目本身还在）。所以不必单独备份；只有当你把它当成唯一阅读副本时才需要一起拷 |
+| `diary/` | 可选 | v0.2.9 起的日记 Markdown 镜像。**它是只读导出，不是真相来源**：插件装载时会把最近 14 天重写一遍，更早的日子不会自动回来（库里的条目本身还在）。所以不必单独备份；只有当你把它当成唯一阅读副本时才需要一起拷 |
 
 **在哪**
 

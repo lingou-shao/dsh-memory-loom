@@ -578,3 +578,64 @@ extraction.fromModel
 ### 13.6 一句话总结
 
 **能用的部分都验证过了，验证不了的部分都没敢声称。** 剩下的三类里：Q63 与 Q64 已在 v0.2.9 收口（不加权 + 给入口；标注 + 不做评估），两者都走「不引入无法验证的机制」这条线；Q39 是「需要一个真实模型、一批真实对话和一个 judge」；其余是「明确不做」。现在真正该等的不是代码，是语料。
+
+## 14. 宿主装配与生命周期（v0.2.12 实测）
+
+### 14.1 原假设是错的
+
+设计时默认「插件在宿主启动时组合进上下文」，于是 README 写了「装完重启 DSH，不重启不会出现」。这句话**从未被验证**，只是照着「重启才生效」的常识写的，然后被反复抄进后续版本。
+
+### 14.2 实测：DSH 是即时重组
+
+真机上的一次安装（`dsh plugin --profile desktop add ...tgz`）留下了三行时间戳：
+
+| 事实 | 时刻 |
+| --- | --- |
+| 宿主主进程启动 | 19:58:15 |
+| `dsh plugin add` 返回，profile 的 `package.json` 被 pnpm 改写 | 20:05:09 |
+| `loom.db` 被创建（`apply()` 执行） | 20:05:11 |
+
+所有宿主主进程的 `StartTime` 至今仍是 19:58:15，会话 id 也没变。所以建库的是那个六分钟前就启动的进程。
+
+机制是**即时重组（live reconcile）**：pnpm 装完 → 把包名追加进 profile 的 `dsh.profile.bundles` → 读包内 `cordis.patch.yml` → 激活该层并调用 `apply()` → 把新的工具 schema 推给正在运行的会话（表现为一条 `### Updated Tool Schemas` 注入）。全程不需要重启，也不需要新开会话。
+
+结论：**插件不是「开机装配的部件」，而是「可以中途插进来的层」**。这改变了 `apply()` 的契约。
+
+### 14.3 由此暴露的缺口：按会话的三块会漏挂
+
+插件向 prompt 注入的内容分两类：
+
+| 内容 | 注册方式 | 依赖 `agent/created` |
+| --- | --- | --- |
+| 记忆使用约定、索引约定 | `ctx.systemPrompt.section`（全局） | 否 |
+| 人设卡 | `agent.ctx.systemPrompt.section` | **是** |
+| 钩子索引块 | `agent.ctx.systemPrompt.context` | **是** |
+| 记忆块 | `agent.ctx.systemPrompt.context` | **是** |
+
+热加载时当前会话的 agent **早就存在**，`agent/created` 不会再来一次，于是后三块一块都挂不上。而装机时最容易确认的两样——9 个工具、两个全局协议块——恰好都不依赖这个事件，所以看上去「一切正常」。
+
+后果不是崩溃，而是**静默降级**：工具能调，但当前会话的系统提示里没有记忆块，模型得先主动想起去搜才知道有记忆。
+
+用 `loom-e2e/probe-hotload.mjs` 固定这个差异（构造一个 fake ctx，agent 先存在、插件后 `apply`）：
+
+```
+修复前  protocol ✓  index-protocol ✓  persona ✗  hooks ✗  memory ✗  工具 ✓
+修复后  protocol ✓  index-protocol ✓  persona ✓  hooks ✓  memory ✓  工具 ✓
+```
+
+### 14.4 修法与它对设计的约束
+
+三处改动，全部只影响「中途装载」这一条路径：
+
+1. `apply()` 末尾从宿主的 `agents` 服务（`ctx.get("agents", false)` → `AgentRegistry.list()`）取出当前所有 live agent，逐个 `attachAgent`。`attachAgent` 自带幂等保护（`agentDisposers.has(sessionId)` 直接返回），重复调用安全。
+2. `turn-stopping` 里补一次 `attachAgent`，用于宿主不暴露 `agents` 服务（或 `list()` 不可用）的情况——下一轮生效，好过永远不生效。
+3. 新增 `ctx.effect("memory-loom:agents")`：卸载（含热重组）时撤销全部按会话的 section。缺了这条，反复重组会在同一个 agent 上叠同名 section。
+
+由此得到两条以后必须遵守的约束：
+
+- **`apply()` 必须可重入。** 任何「只在启动时跑一次」的假设，在热加载下都会漏掉当前会话。目前 `apply()` 里的初始化动作（建目录、`CREATE TABLE IF NOT EXISTS`、`ensureMaster`、`seedPersona`、`syncDiary`）全部幂等，所以重复 `apply` 只会在同一路径上多跑一遍，不会破坏数据。
+- **按会话申请的资源必须能在「会话已存在」之后补挂，并且必须在 fiber 销毁时撤销。** 只挂事件、不查存量，是这类插件最容易漏的一环。
+
+### 14.5 没变的部分
+
+整合（写事件、写日记）仍然要等单会话 2 万 token 或空闲 5 分钟才触发。热加载只负责挂载工具与 prompt 块，不负责「立刻开始记忆」。装完立刻问「你记得什么」得到空答案，是预期行为，不是故障。

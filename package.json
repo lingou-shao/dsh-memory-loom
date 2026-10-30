@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory-loom",
-  "version": "0.2.10",
+  "version": "0.2.12",
   "description": "Layered, person-aware long-term memory for DeepSeek Harness: raw turns (L0), atomic facts (L1), event summaries (L2), self-narrative (L3), a subjective layer and a persona card, plus a pointer-only hook index — hooks in the prompt, bodies pulled on demand — all in one local SQLite file",
   "keywords": [
     "dsh",
@@ -34,7 +34,8 @@
     "LICENSE"
   ],
   "engines": {
-    "node": "^22.19.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "dsh": {
     "bundle": {
@@ -50,8 +51,7 @@
   },
   "homepage": "https://github.com/lingou-shao/dsh-memory-loom#readme",
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <2",
-    "@deepseek-ai/schemastery": ">=3.18.5 <4"
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.5"

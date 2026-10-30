@@ -13,7 +13,29 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { HookIndex, indexDefaults as DEFAULTS, estimateTokens, parseRef, sliceByTokens } from '../lib/index.js';
+
+// The bundle imports `@deepseek-ai/dsh-tools`; DSH resolves that from its own
+// runtime, but a plain `node test/selftest.mjs` inside an installed package has
+// no node_modules and would die with a bare ERR_MODULE_NOT_FOUND. Say what is
+// actually wrong instead of dumping a stack trace at someone who just wanted to
+// poke at the package.
+let HookIndex, DEFAULTS, estimateTokens, parseRef, sliceByTokens;
+try {
+  ({ HookIndex, indexDefaults: DEFAULTS, estimateTokens, parseRef, sliceByTokens } = await import('../lib/index.js'));
+} catch (error) {
+  if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+  console.error([
+    '',
+    '这个自测要在 clone 下来的仓库里跑，安装包里没有 node_modules：',
+    '',
+    '  git clone https://github.com/lingou-shao/dsh-memory-loom',
+    '  cd dsh-memory-loom && npm install && npm test',
+    '',
+    `缺少的模块：${String(error.message).split('\n')[0]}`,
+    ''
+  ].join('\n'));
+  process.exit(1);
+}
 
 // `URL.pathname` is percent-encoded and keeps a leading slash on Windows, so a
 // repo path with a space or a Chinese folder name turns into `%20`/`%E4%..` and

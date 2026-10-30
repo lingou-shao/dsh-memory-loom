@@ -1,7 +1,9 @@
 # 端到端测试报告
 
-对象：`dsh-memory-loom@0.2.10`（融合后的单包，含钩子索引层）
+对象：`dsh-memory-loom@0.2.12`（融合后的单包，含钩子索引层）
 方式：跑**真实的插件 bundle**（`../lib/index.js`），不是模拟。
+
+> 这份报告随 npm 包发布（`loom-e2e/REPORT.md`），但**下面引用的 `harness.mjs` / `scenario-*.mjs` / `probe-*.mjs` 只存在于仓库的 `loom-e2e/` 目录，不在安装包里**——它们需要一个能解析 `@deepseek-ai/*` 的 Node 环境，安装位置没有。想复跑请 clone 仓库后 `npm install`。
 
 ## 一、测试环境是真的还是假的
 
@@ -28,10 +30,11 @@ node scenario-cost.mjs      # 分页取回成本：四档预算 × 中英文
 node probe-config.mjs       # 配置一致性：schema 默认值 vs indexDefaults vs 引擎配置
 node probe-ceiling.mjs      # 上限实测：rebuild 成本与驻留 token
 node probe-recall.mjs       # 池外事件找回闭环：FTS5 → memory_expand
+node probe-hotload.mjs      # 热加载：会话先存在、插件后组合时，四块 prompt 内容是否都挂上
 cd .. && npm test           # 钩子索引自测，30 项
 ```
 
-当前全部通过（work 18 + limit 17 + merged 24 + l0cap 15 + diary 17 + selftest 30 = **121 项断言**，另有三个探针脚本全绿）。
+当前全部通过（work 18 + limit 17 + merged 24 + l0cap 15 + diary 17 + selftest 30 = **121 项断言**，另有六个探针脚本全绿，退出码均为 0）。
 
 ## 三、各场景覆盖什么
 
@@ -95,3 +98,50 @@ cd .. && npm test           # 钩子索引自测，30 项
 | `1.0.0` | **拒绝** | 通过 |
 
 `@deepseek-ai/dsh-tools` 的传递依赖解释了 25 个包 / 17 MB 的体积（`dsh-agent` / `dsh-llm` / `dsh-session` 等），这是 `defineTool` 的代价，删 peer 声明并不能减小它——`defineTool` 是纯函数，副本与宿主不同源不影响运行。
+
+## 八、v0.2.11：装进真实 DSH 之后暴露的四个问题
+
+以下不是我这边的模拟环境，是 `dsh plugin --profile desktop add dsh-memory-loom-0.2.10.tgz` 装进真实桌面端之后的实测（pnpm 11.28.5，`+6 packages`，559 ms）：
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| profile 里钉成 `file:C:/Users/shaoz/Desktop/....tgz` | 用本地 tarball 安装的必然结果，桌面文件一挪，下次 pnpm 重装就断 | 插件这边无法改；README 建议装完把 tgz 放固定目录，或直接用 release 直链 |
+| 装好的包里 `npm test` 报 `ERR_MODULE_NOT_FOUND: @deepseek-ai/dsh-tools` | DSH 的 pnpm 不安装 peer（`+6` 而不是 `+25`），运行时靠宿主解析，裸 `node` 进程没有这条解析路径 | `test/selftest.mjs` 改为捕获该错误并打印「回仓库跑」，不再甩堆栈 |
+| pnpm 警告 peer，多装 `schemastery` + `cosmokit` | `schemastery` 同时写在 `dependencies` 与 `peerDependencies` | 删掉 peer 里那一份，只留 `dependencies`（DSH 环境里 peer 本来就不装，留着只会误导） |
+| 文档说「重启后旁边多一个 `diary/`」，实测没有 | `syncDiary()` 懒创建目录，库里 0 条日记时不会 mkdir | 改文档：**第一篇日记落盘后**才出现，并说明这不是失败 |
+
+顺带把兼容性声明改准：新增 `engines.dsh: ">=0.2.1-rc.2 <0.3.0"`。DSH 的预检优先读这个字段，读到就不再逐个比对 peer——比靠 peer 范围兜着精确。上限定在 `<0.3.0` 是诚实的：插件用了 `defineTool`、`systemPrompt.section`、session 事件这些宿主内部面，0.3 改语义时它不会自动知道，装不上比装上了坏掉好。
+
+实测记录（真实库 `~/.dsh/memory/loom.db`，装好当天）：`events 0 / facts 1 / diary 0 / loom_hooks 2 / loom_docs 1`。9 个 `memory_*` 工具全部挂载，两个 prompt 块进系统提示，`memory_write → memory_search → memory_expand → memory_pack → memory_index → memory_expand D1` 整条链路真实走通。**整合（写事件、写日记）需要单会话 2 万 token 或空闲 5 分钟才触发，所以当天还没有事件** —— 这一点无法在装机当天验证，如实记在这里。
+
+## 九、v0.2.12：热加载漏挂了一半
+
+真机时间戳先推翻了「装完要重启」：宿主主进程 19:58:15 启动，20:05:09 装插件，20:05:11 `loom.db` 就被建出来了——建库的是那个六分钟前启动的进程。DSH 是**即时重组**，不是「下次启动才装配」。
+
+顺着这条往下查，发现 `apply()` 有一半内容在热加载时是哑的：
+
+| 注入内容 | 注册方式 | 依赖 `agent/created` | 热加载时 |
+| --- | --- | --- | --- |
+| 记忆使用约定 / 索引约定 | 全局 `systemPrompt.section` | 否 | ✓ |
+| 9 个 `memory_*` 工具 | `ctx.tools.register` | 否 | ✓ |
+| 人设卡 | `agent.ctx.systemPrompt.section` | **是** | ✗ |
+| 钩子索引块 | `agent.ctx.systemPrompt.context` | **是** | ✗ |
+| 记忆块 | `agent.ctx.systemPrompt.context` | **是** | ✗ |
+
+原因很直接：热加载时当前会话的 agent 早就创建好了，`agent/created` 不会再来一次。而装机时最容易确认的两样（工具、全局协议块）恰好都不依赖它，所以表面上「一切正常」。
+
+`probe-hotload.mjs` 用 fake ctx 构造「agent 先存在、插件后 `apply`」的场景固定差异：
+
+```
+修复前  protocol ✓  index-protocol ✓  persona ✗  hooks ✗  memory ✗  工具 ✓
+修复后  protocol ✓  index-protocol ✓  persona ✓  hooks ✓  memory ✓  工具 ✓
+新会话（装完之后才创建）：修复前后都 ✓ —— 所以这个缺陷只影响「装之前就开着的那个会话」
+```
+
+修法三条，都只影响中途装载这条路径：
+
+1. `apply()` 末尾遍历宿主 `agents` 服务的 `list()`，对每个 live agent 调 `attachAgent`（函数自带幂等保护）。
+2. `turn-stopping` 里补一次 `attachAgent`，用于宿主不暴露 `agents` 服务的场合。
+3. 新增 `ctx.effect("memory-loom:agents")`，卸载/重组时撤掉全部按会话的 section，避免反复重组叠同名块。
+
+回归：selftest 30 项、work 18 / merged 24 / limit 17 / l0cap 15 / diary 17 全过，`probe-config` / `probe-ceiling` / `probe-recall` / `probe-audit`(×3) / `probe-hotload` 退出码全 0。正常启动路径行为未变。
