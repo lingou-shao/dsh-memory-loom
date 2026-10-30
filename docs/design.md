@@ -295,6 +295,8 @@ score    = (sim·strength + emotion + layerPenalty) × expiry × conflict × wei
 
 `npm run typecheck` 与 `npm run build` 均通过；`lib/index.js` 的运行时依赖只有 `@deepseek-ai/schemastery`、peer 的 `@deepseek-ai/dsh-tools` 和 Node 内置模块。
 
+> **v0.2.10 补记**：`package.json` 的 `peerDependencies` 早先多声明了 `dsh-agent` / `dsh-llm` / `dsh-session` / `dsh-system-prompt` / `cordis` 五个包，而代码里从未 import 它们。DSH 安装插件时会把 `peerDependencies` 里所有 `@deepseek-ai/dsh-*` 与运行时版本逐个比对，不满足即拒绝安装；`^0.2.1-rc.2` 的上界是 `0.3.0`，意味着 DSH 一升到 0.3 这个插件就装不上。现已收窄为两个真依赖，范围改成 `>=0.2.1-rc.2 <2`。用 DSH 自己的 `evaluatePluginCompatibility()` 实测：旧声明在运行时 `0.3.0` / `1.0.0` 下被拒，新声明在 `0.2.1-rc.3` / `0.2.5` / `0.3.0` / `1.0.0` 下均通过。
+
 ---
 
 ## 9. 钩子索引层（v0.2.0 新增）

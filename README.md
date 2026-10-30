@@ -1,25 +1,5 @@
 # dsh-memory-loom
 
-# DSH 记忆插件 (dsh-memory-loom)
-
-> ⚠️ **项目状态：早期测试版 (Early Alpha) / 求各位帮忙踩坑**
-> 
-> 这是我用 AI 辅助开发的 DSH 记忆插件。我个人的初步测试已经通过，但我深知 AI 写的代码在**极端情况下**可能会有我考虑不到的漏洞。
-> 
-> 所以，我把它开源出来，**非常需要正在使用 DSH 的朋友帮我实测！** 
-> 
-> 🙏 **我想请你帮我测什么？**
-> 1. 在实际聊天中，记忆的提取和召回效果到底怎样？是否真的达到了“长久记忆”的目的？
-> 2. 有没有什么**极端输入**（比如超长文本、特殊符号、乱码）会导致插件崩溃或报错？
-> 3. 长期挂机运行，会不会导致内存泄漏、Token 消耗异常飙升（怕我的大肥鱼被吃穷）？
-> 
-> 🐛 **如何反馈？**
-> 如果你遇到了报错、崩溃，或者有任何关于极端情况的测试结果，请直接在这个仓库的 **Issues** 区告诉我。提供你的报错日志或复现步骤，感激不尽！
-
----
-
-（以下是原 README 的详细说明文档）
-
 给 DeepSeek Harness 的长期记忆插件：把对话沉淀成**四层记忆 + 主观层 + 人设卡**，全部存在一个本地 SQLite 文件里。**v0.2.0 起内置钩子索引层**：上下文里只放每条约 15 token 的"钩子"，完整正文留在库里按需取回。
 
 - **L0** 原始对话（只追加，不按时间清理）
@@ -60,17 +40,29 @@
 
 ### 方式一：DSH 里一键安装（推荐）
 
-打开 DSH → **插件** → **添加插件**，在输入框里填其中一个：
+打开 DSH → **插件** → **添加插件**，输入框里贴一个地址，回车。三种都实测可装：
 
-- **GitHub 仓库地址**：`https://github.com/lingou-shao/dsh-memory-loom`
-- **本地目录路径**：先把仓库 clone 到本地，然后填目录路径
+| 贴什么 | 例子 | 特点 |
+| --- | --- | --- |
+| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.10/dsh-memory-loom-0.2.10.tgz` | 版本钉死，装到的就是这一版 |
+| **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，能拿到最新提交，但每次装到的内容会变 |
+| **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
-点「安装」即可。包内 `package.json` 声明了 `dsh.bundle.patch`，DSH 组合 profile 时自动叠加，无需手改配置；数据库默认落在 `$DSH_HOME/memory/loom.db`。
+DSH 用 pnpm 把包装进 profile（`~/.dsh/profiles/<profile>/node_modules`），并自动把 `dsh-memory-loom` 写进该 profile 的 bundle 列表。包内 `package.json` 声明了 `dsh.bundle.patch`，组合器据此读取 `cordis.patch.yml`，**不需要手改任何配置**；数据库默认落在 `$DSH_HOME/memory/loom.db`。
 
-### 方式二：tarball
+**装完重启 DSH。** 插件是在启动时组合进上下文的，不重启不会出现。
+
+重启后确认两件事：
+
+1. 新开一个会话，让模型「查一下记忆里有什么」：工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 9 个 `memory_*` 工具，就说明挂钩成功。
+2. `%USERPROFILE%\.dsh\memory\loom.db`（Linux/macOS 是 `~/.dsh/memory/loom.db`）被创建，旁边多一个 `diary/` 目录。
+
+如果安装被拒绝并提示 `incompatible-version`，那是插件声明的 DSH 版本范围与当前 DSH 对不上：请提 issue 说明你的 DSH 版本（本包对 `@deepseek-ai/dsh-tools` 的声明已经放宽到 `>=0.2.1-rc.2 <2`，正常情况下不会触发）。
+
+### 方式二：tarball（离线 / 内网）
 
 ```bash
-npm install ./dsh-memory-loom-0.2.9.tgz
+npm install ./dsh-memory-loom-0.2.10.tgz
 ```
 
 ### 方式三：手动挂载
@@ -419,6 +411,18 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 3. **删掉 `diary.weight` 死列（顺手清掉 `mood`）。** 这一列写入的是 `emotion.salience`，`recentDiary()` 也映射了出来，但下游没有任何一处读它——评分用固定的 `similarity: .35`，渲染用固定的 `base: .7`。一个永远不生效的列只会让下一个人以为它在起作用，所以直接删表定义。老库里的列会留着（有默认值，插入不写它），读写都正常，无需迁移。
 4. `memory_profile` 的日记计数以前是 `recentDiary(…, 20).length`，超过 20 篇永远显示 20——现在是真总数。
 
+### v0.2.10：把「一键安装」这条路真正走通
+
+装得上不等于装得过。对着 DSH 的 `dsh-plugin-manager` 逐段读了一遍安装流程后，改了四处：
+
+1. **peerDependencies 收窄成「只声明真正 import 的」。** 原来声明了 6 个 `@deepseek-ai/*`，其中 5 个（`dsh-agent` / `dsh-llm` / `dsh-session` / `dsh-system-prompt` / `cordis`）代码里根本没有 import；只有 `dsh-tools`（`defineTool`）和 `schemastery`（schema）是真依赖。多声明的部分会被 DSH 的兼容性预检逐个比对运行时版本，**不满足就直接拒绝安装**。
+2. **版本范围放开上界。** 原来的 `^0.2.1-rc.2` 等价于 `>=0.2.1-rc.2 <0.3.0`——DSH 一旦发布 0.3.0，所有人重装这个插件都会被判 `incompatible-version`。现在写成 `>=0.2.1-rc.2 <2`，与生态里其它插件的写法一致（对照 `@dsh-external/dsh-blender-plugin` 用的是 `>=0.0.1-rc <2`）。
+3. **补 `repository` / `bugs` / `homepage`。** 插件卡片和 issue 入口都靠它，之前是空的。
+4. **§2 安装章节重写。** 写清三种可填的地址、本地路径必须是绝对路径、**装完要重启 DSH**、以及重启后怎么确认真的挂上了。
+5. **`loom-e2e/REPORT.md` 随包发布**（脚手架脚本仍不进包）。装完之后想核对「它到底测过什么」，不必再跑回 GitHub 找。
+
+依赖树本身没有变小——`@deepseek-ai/dsh-tools` 自带 `dsh-agent` / `dsh-llm` / `dsh-session` 等传递依赖，装一次约 17 MB / 25 个包，这一点无法绕开（除非不用 `defineTool`）。`defineTool` 是纯函数（校验参数后返回普通对象，没有跨实例状态），所以它加载的副本与宿主不是同一份也不影响运行。
+
 ---
 
 ## 7. 隐私与数据权利
@@ -541,7 +545,7 @@ test/
   selftest.mjs        钩子索引层自测，30 项（npm test）
 docs/
   design.md           设计与 Q1–Q66 对照
-loom-e2e/             端到端脚手架（不在 npm 包内，仅供仓库内验证）
+loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.md 随包发布）
   harness.mjs         用假 cordis context 跑真插件
   scenario-work.mjs   工作类：写代码 + 表格两条线（18 项断言）
   scenario-merged.mjs 融合后完整链路（22 项）
