@@ -595,7 +595,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 
 ## 9. 目录
 
-本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（约 6170 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程未随仓库放出，因此「改一行再构建」这条路暂时不通；反馈问题时请附 `lib/index.js` 的行号，定位是一致的。
+本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（6201 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
 
 ```
 lib/
@@ -619,12 +619,40 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
   probe-audit.mjs     分页边界（emoji/越界/无损拼接）、脱敏性能、非本机路径、并发
   probe-audit2.mjs    配置项是否真的生效（整合开关 / 通配符转义 / ownerName / locale）
   probe-audit3.mjs    驻留预算上限、挂载不存在的编号、驻留快照稳定性
+  probe-hotload.mjs   热加载：会话先存在、插件后组合时，四块 prompt 内容是否都挂上（v0.2.12）
   REPORT.md           上述场景的断言矩阵与结论
 cordis.patch.yml      bundle patch：把插件挂进 profile
 .env.example          环境变量示例（本插件不需要任何密钥）
 ```
 
-`lib/index.js` 内部分区（按行号大致顺序）：`Config` schema → SQLite schema 与迁移 → 文本层（CJK 分词、脱敏、预算）→ 存储层（L0–L3 SQL）→ 抽取/整合 → 召回/渲染 → `HookIndex` 钩子索引层 → dsh 适配（事件绑定、prompt 注入、工具注册）。
+`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 22 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 6200 行：
+
+| region | 行（v0.2.12） | 职责 |
+| --- | --- | --- |
+| `src/engine/time.ts` | 7–331 | 时区、`day_key`、本地日界、短日期格式 |
+| `src/engine/types.ts` | 332–409 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
+| `src/config.ts` | 410–574 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
+| `src/engine/db.ts` | 575–915 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
+| `src/engine/text.ts` | 916–1149 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
+| `src/engine/store.ts` | 1150–1891 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
+| `src/engine/decay.ts` | 1892–1961 | 衰减与时效权重 |
+| `src/engine/domain.ts` | 1962–2267 | 10 个固定域的判定与中英标签 |
+| `src/engine/salience.ts` | 2268–2459 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
+| `src/engine/segment.ts` | 2460–2682 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
+| `src/engine/consolidate.ts` | 2683–3332 | 整合：抽取、写事实与事件、叙事证据 |
+| `src/engine/roles.ts` | 3333–3527 | 主人 / 朋友 / 路人权限梯度与可见性 |
+| `src/engine/maintenance.ts` | 3528–3651 | 每轮维护：衰减、去重、trace 清理、路人到期 |
+| `src/engine/render.ts` | 3652–3891 | 记忆块与分页渲染（`SECTION`、预算） |
+| `src/engine/retrieval.ts` | 3892–4223 | 召回、排序融合、冲突检测、分页切片 |
+| `src/engine/persona.ts` | 4224–4400 | 人设卡五区、自我叙述、对他的印象 |
+| `src/engine/diary-mirror.ts` | 4401–4460 | 日记 Markdown 镜像（v0.2.9） |
+| `src/engine/index.ts` | 4461–4949 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
+| `src/host.ts` | 4950–5060 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
+| `src/tools.ts` | 5061–5539 | 9 个 `memory_*` 工具与参数校验 |
+| `src/index-layer.ts` | 5540–5937 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
+| `src/index.ts` | 5938–6201 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
+
+行号对应 v0.2.12，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 
 `loom-e2e/` 单独跑需要 `npm install`（它复用父目录的 `node_modules`），运行方式：
 
