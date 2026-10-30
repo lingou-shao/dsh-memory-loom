@@ -1,0 +1,15 @@
+# dsh-memory-loom bundle layer — applied when a profile lists this bundle
+# (package.json declares `dsh.bundle.patch` pointing at this file).
+#
+# `name` is the PACKAGE NAME, resolved through the profile's node_modules or
+# the installation fallback `$DSH_HOME/profiles/node_modules`. This package's
+# main entry (lib/index.js) is that plugin.
+#
+# The store lives under the harness home, never under the current directory: a
+# durable record of someone's conversations must not depend on where the CLI
+# was started. Point `path` at `:memory:` for a throwaway deployment.
+- insert:
+    - id: memory-loom
+      name: dsh-memory-loom
+      config:
+        path: !!js dshHomePath('memory', 'loom.db')
