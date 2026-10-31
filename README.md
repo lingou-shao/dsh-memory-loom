@@ -48,6 +48,15 @@
 | **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，能拿到最新提交，但每次装到的内容会变 |
 | **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
+> **贴本地 tarball 的要注意一件事**：DSH 会把你给的源**原样**记成 profile 里的依赖——贴本地文件就写成 `"dsh-memory-loom": "file:C:/Users/you/Desktop/dsh-memory-loom-0.2.12.tgz"`，贴 git 地址就写成 `git+https://...`。也就是说，本地 tarball 的**绝对路径变成了长期依赖**：这个 tgz 一旦被挪走/删掉，再遇到「重新解析依赖」的场合（profile 的 `pnpm-lock.yaml` 丢失或重生成、pnpm store 被 prune、换机器、`--force` 重装）就会报 `Could not install from ... as it does not exist`。
+>
+> 规避办法（任选一条）：
+> - **tgz 别放桌面/下载目录**，放到固定位置再装，例如 `%USERPROFILE%\.dsh\vendor\`；
+> - 或者贴 Release 里 tarball 的 **HTTPS 直链**（上表第一行），profile 里记的是 URL，跟着文件位置无关；
+> - 或者贴 **git 地址**，最稳，也和后三种插件的记录方式一致。
+>
+> 已经钉在桌面了也不要紧：把 tgz 挪到新位置后，改 profile `package.json` 里那一行的路径、再 `pnpm install` 即可。这条是 DSH 插件管理器的记录方式决定的，不是本插件的配置。
+
 DSH 用 pnpm 把包装进 profile（`~/.dsh/profiles/<profile>/node_modules`），并自动把 `dsh-memory-loom` 写进该 profile 的 bundle 列表。包内 `package.json` 声明了 `dsh.bundle.patch`，组合器据此读取 `cordis.patch.yml`，**不需要手改任何配置**；数据库默认落在 `$DSH_HOME/memory/loom.db`。
 
 **装上就生效，通常不用重启。**
