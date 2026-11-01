@@ -1,9 +1,9 @@
 # 端到端测试报告
 
-对象：`dsh-memory-loom@0.2.12`（融合后的单包，含钩子索引层）
+对象：`dsh-memory-loom@0.2.12` 起，逐版追加至 `0.2.16`（融合后的单包，含钩子索引层）
 方式：跑**真实的插件 bundle**（`../lib/index.js`），不是模拟。
 
-> 这份报告随 npm 包发布（`loom-e2e/REPORT.md`），但**下面引用的 `harness.mjs` / `scenario-*.mjs` / `probe-*.mjs` 只存在于仓库的 `loom-e2e/` 目录，不在安装包里**——它们需要一个能解析 `@deepseek-ai/*` 的 Node 环境，安装位置没有。想复跑请 clone 仓库后 `npm install`。
+> 这份报告随 npm 包发布（`loom-e2e/REPORT.md`），但**下面引用的 `harness.mjs` / `scenario-*.mjs` / `probe-*.mjs` 没有随包发布**——它们需要一个能解析 `@deepseek-ai/*` 的 Node 环境，安装位置没有（DSH 用 pnpm，不装 peer）。想复跑请从 Release 附件下载 `loom-e2e-0.2.16.zip`，把解压出的 `loom-e2e/` 覆盖到包根目录，先 `npm install` 再按下面第二节跑。
 
 ## 一、测试环境是真的还是假的
 
@@ -18,8 +18,10 @@
 
 ## 二、怎么跑
 
+> 跑的时候 Node 会打印 `ExperimentalWarning: SQLite is an experimental feature`（Node 22 上 `node:sqlite` 仍带这个标记）。**这是警告不是失败**，看退出码即可。
+
 ```bash
-npm install                 # 先装 peer/dev 依赖（仓库根）
+npm install                 # 先装 peer/dev 依赖（包根，npm 会把 peer 一并装上）
 cd loom-e2e
 node scenario-work.mjs      # 工作类：写代码 + 表格，18 项
 node scenario-limit.mjs     # 极限类：60 轮 + 40 事实 + 12000 字单条，17 项
@@ -31,10 +33,12 @@ node probe-config.mjs       # 配置一致性：schema 默认值 vs indexDefault
 node probe-ceiling.mjs      # 上限实测：rebuild 成本与驻留 token
 node probe-recall.mjs       # 池外事件找回闭环：FTS5 → memory_expand
 node probe-hotload.mjs      # 热加载：会话先存在、插件后组合时，四块 prompt 内容是否都挂上
+node probe-episodes.mjs     # 事件块：能否列出、标题是否带对象名、跨会话是否合并，18 项
+node probe-model-title.mjs  # 模型路径：假 llm 服务喂回 JSON，看标题是否真被采用，16 项
 cd .. && npm test           # 钩子索引自测，30 项
 ```
 
-当前全部通过（work 18 + limit 17 + merged 24 + l0cap 15 + diary 17 + selftest 30 = **121 项断言**，另有六个探针脚本全绿，退出码均为 0）。
+当前全部通过（work 18 + limit 17 + merged 25 + l0cap 15 + diary 17 + selftest 30 = **122 项断言**，另有 17 个探针脚本全绿，退出码均为 0）。
 
 ## 三、各场景覆盖什么
 
@@ -86,7 +90,7 @@ cd .. && npm test           # 钩子索引自测，30 项
 | --- | --- | --- |
 | Release 里的 tarball | `pnpm add https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.9/dsh-memory-loom-0.2.9.tgz` | 25 个包 / 21.6s，裸包名 import 9 个导出，`npm test` 30 项全过 |
 | GitHub 仓库地址 | `pnpm add github:lingou-shao/dsh-memory-loom` | 同上（codeload 取 tar.gz，走 `files` 白名单：`lib` / `test` / `docs` / `cordis.patch.yml` / `README.md` / `LICENSE` 齐全） |
-| 装好的包里跑 e2e | 把 `loom-e2e/` 拷进 `node_modules/dsh-memory-loom/` | work 18 + merged 24 + limit 17 + l0cap 15 + diary 17 + probe-config 全过 |
+| 装好的包里跑 e2e | 把 `loom-e2e/` 拷进 `node_modules/dsh-memory-loom/` | work 18 + merged 25 + limit 17 + l0cap 15 + diary 17 + probe-config 全过 |
 
 兼容性预检（直接调用 DSH 的 `evaluatePluginCompatibility()`，第三参数分别传运行时版本）：
 
@@ -106,7 +110,7 @@ cd .. && npm test           # 钩子索引自测，30 项
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | profile 里钉成 `file:C:/Users/shaoz/Desktop/....tgz` | 用本地 tarball 安装的必然结果，桌面文件一挪，下次 pnpm 重装就断 | 插件这边无法改；README 建议装完把 tgz 放固定目录，或直接用 release 直链 |
-| 装好的包里 `npm test` 报 `ERR_MODULE_NOT_FOUND: @deepseek-ai/dsh-tools` | DSH 的 pnpm 不安装 peer（`+6` 而不是 `+25`），运行时靠宿主解析，裸 `node` 进程没有这条解析路径 | `test/selftest.mjs` 改为捕获该错误并打印「回仓库跑」，不再甩堆栈 |
+| 装好的包里 `npm test` 报 `ERR_MODULE_NOT_FOUND: @deepseek-ai/dsh-tools` | DSH 的 pnpm 不安装 peer（`+6` 而不是 `+25`），运行时靠宿主解析，裸 `node` 进程没有这条解析路径 | `test/selftest.mjs` 改为捕获该错误并打印两条复跑路径（release 附件的 `loom-e2e-*.zip` / clone 仓库），不再甩堆栈 |
 | pnpm 警告 peer，多装 `schemastery` + `cosmokit` | `schemastery` 同时写在 `dependencies` 与 `peerDependencies` | 删掉 peer 里那一份，只留 `dependencies`（DSH 环境里 peer 本来就不装，留着只会误导） |
 | 文档说「重启后旁边多一个 `diary/`」，实测没有 | `syncDiary()` 懒创建目录，库里 0 条日记时不会 mkdir | 改文档：**第一篇日记落盘后**才出现，并说明这不是失败 |
 
@@ -145,3 +149,220 @@ cd .. && npm test           # 钩子索引自测，30 项
 3. 新增 `ctx.effect("memory-loom:agents")`，卸载/重组时撤掉全部按会话的 section，避免反复重组叠同名块。
 
 回归：selftest 30 项、work 18 / merged 24 / limit 17 / l0cap 15 / diary 17 全过，`probe-config` / `probe-ceiling` / `probe-recall` / `probe-audit`(×3) / `probe-hotload` 退出码全 0。正常启动路径行为未变。
+
+## 十、v0.2.13：宿主不兜底 prompt 块，一条坏库会让每轮都失败
+
+来自装了这个插件的 DSH 自己的代码审查：它指出 `recallFor()` 外面没有 try/catch，怀疑宿主不兜底。顺着查下去，结论比它说的更糟一点。
+
+读本机 `D:/dsh/resources/app.asar` 里的实际实现（不是文档）：
+
+- `dsh-system-prompt` 的 `assemble()` 与 `resolveContext()` 都是 `section.text(context)` 裸调用，整个模块没有 try/catch。
+- `required: true` 只参与「运行期上下文被抑制时是否保留」的过滤，**不参与异常处理**。
+- `dsh-agent-loop` 的 `preStep()` 直接 await `assemble()`；`turn()` 外层 catch 把异常折成 `turn/end: { reason: { kind: "error" } }` 再 rethrow；driver 的 `while (await this.turn())` 外面有 `catch (_error) {}`。
+
+所以进程不倒，但**每一轮都失败**，直到库恢复。三块按会话的 prompt（persona / hooks / memory）都会抛，前两块此前没人注意。
+
+`loom-e2e/probe-prompt-guard.mjs` 固定这条（关闭引擎 = 库不可用）：
+
+```
+修复前  persona ✗  hooks ✗  memory ✗   （3/3 抛错，exit 1）
+修复后  persona ✓  hooks ✓  memory ✓   （3/3 返回空串，exit 0）
+```
+
+修法是 `guardPrompt(label, fn)`：失败返回 `""`，同一 label 60 秒内只告警一次。空块会被宿主过滤（`renderPrompt` / `renderContextSections` 都 `filter(text.length > 0)`），不会留下空标题。
+
+回归：selftest 30 项、work 18 / merged 24 / limit 17 / l0cap 15 / diary 17 全过，`probe-hotload` / `probe-prompt-guard` / `probe-config` / `probe-ceiling` / `probe-recall` 退出码全 0。
+
+## 十一、v0.2.14：让降级说话，并给模型一个自检入口
+
+v0.2.13 的降级是安静的：库坏了，模型照样自信地回答，用户看不出区别。这一版补两条——一条给人（状态行），一条给模型（`memory_doctor`）。
+
+**状态行**：三块 prompt 的失败计数进同一份 per-session 注册表；连续失败 3 次后，由 `memory` 块（唯一每轮必被求值、且最后求值的块）输出一句 `【记忆状态】…`，列出所有失败块、要求"如实说明、不要凭印象编造"，并指向 `memory_doctor`。任一 label 成功即清零。前两次失败保持静默，避免单次抖动刷屏。降级期间每轮多约 90 token，且追加在 `budgetTokens` 之外。
+
+**memory_doctor（第 10 个工具）**：只读体检 8 项——库连接、库文件大小与 mtime、WAL、`journal_mode`/`synchronous`、`quick_check`、六张表行数、最近一次 `recall` 时间、prompt 三块连续失败。每项独立 try/catch；不用 `actorOf()`（它会读库）；时间格式化在 `timezoneOf()` 抛错时退回本机时区。报告分 ✓/✗/·，只有 ✗ 计入"发现 N 处问题"。
+
+断库实测（把 `ctx.effect` 全撤，等效库被删/损坏）：
+
+```
+✗ 库连接  database is not open
+✓ 库文件  280.0 KB · 修改于 2026/10/31 22:56:04
+· WAL  不存在（没有未落盘的写入，或库被正常关闭）
+✗ prompt 块  memory 连续 3 次（database is not open）
+· 日记目录  …\diary
+
+结论：发现 2 处问题。
+下一步：库连不上：先确认没有第二个 DSH 实例占着它，再重启 DSH。不要删库；库本身也许是好的：把上面 prompt 块的错误原文发给维护者。
+```
+
+`loom-e2e/probe-degrade-notice.mjs` 8 项全过（健康不出状态行 / 注册 / 健康自检 / 前两次静默 / 第三次出现 / 含两条指令 / 只出现一次 / 坏库不抛错且定位到连接），exit 0。
+
+回归：selftest 30 项全过；`scenario-work/merged/limit/l0cap/diary/cost` 全过；`probe-hotload`（断言改为 10 个工具）/`probe-prompt-guard`/`probe-config`/`probe-ceiling`/`probe-recall`/`probe-audit*` 退出码全 0。
+
+未覆盖：库恢复后的计数清零只有代码核对，没有做"失败 3 次再恢复"的故障注入。
+
+## 十二、终检补的两处（仍在 v0.2.14）
+
+**1. 会话销毁时漏清一张表。** `agent/disposed` 里清了 `agentDisposers` 和 `turns`，但 v0.2.14 新加的 `promptHealth`（每会话的 prompt 失败计数）没有 delete——会话越开越多，这张表只增不减。每条只有几百字节，属于缓慢泄漏，不是功能错误，但既然另外两张都清了，这张没清就是疏漏。补一行 `promptHealth.delete(sessionId)`。
+
+验证（临时脚本，构造支持 `on()` 的 fake ctx，先断库造出 3 次失败，再触发 `agent/disposed`）：
+
+```
+disposed 前: ✗ prompt 块  memory 连续 3 次（database is not open）
+disposed 后: ✓ prompt 块  本轮三块都读到了
+```
+
+状态确实被清掉。未把这项写进 `probe-degrade-notice.mjs`：它的 fake ctx `on()` 是空实现，要支持事件触发得改 harness，为一行修复不值当。
+
+**2. 复跑时会看到 SQLite 的 experimental 警告。** 已在第二节开头注明这是警告不是失败。
+
+回归（终版包 + zip 覆盖 + `npm install`）：15 个脚本 + `npm test` 全部 exit 0。
+
+## 十三、v0.2.15：三个「以为有、其实没有」
+
+对照一篇外部记忆架构文章（四层 / 四不变量）自查，再加上写探针时撞见的真缺陷。三处共同点是：文档写着有、代码在跑、产物是空的，而且不报错。
+
+**1. 长期偏好根本召回不到（最严重）**
+
+`compileMatch()` 把用户这句话的每个 CJK bigram 用空格连起来交给 FTS5，而空格在 FTS5 里是隐式 AND。实测：
+
+```
+偏好：我不吃香菜，点外卖一定要备注
+"香菜"             → 命中
+"我不吃香菜"       → 命中
+"记得我不吃香菜吗" → 不命中（7 个 bigram 只中 4 个）
+"今天天气不错"     → 不命中
+```
+
+不命中时 `subjective` 为空 → `blocks` 为空 → 记忆块返回空串。**那一轮模型看到的记忆是空的**，不是少一点。facts / events 有 `pinnedFacts()` 和 `recentFacts(8)` 兜底，偏好一条兜底都没有，所以只有它彻底消失。
+
+修法：`recentPreferences()` + `retrieval.residentPreferences`（默认 3）让最近几条每轮常驻；偏好命中改用 `compileLooseMatch()`（OR 连接）。设 0 回到旧行为。
+
+**2. 主观层的 cap 是块内配额，却拿去比全局 used**
+
+`appendSection` 判断 `used + blockUsed + cost > cap`，`used` 全局累加；但主观层传的 cap 是 `target × 0.25`（=500）。事实区超过 500 token 后，印象和日记整块消失，配置里仍写着启用。
+
+`probe-diary-budget.mjs` 实测（20 条长事实，`maxItems: 40`）：
+
+```
+修复前  印象 ✗  日记 ✗  偏好 ✓
+修复后  印象 ✓  日记 ✓  偏好 ✓
+```
+
+偏好幸存是因为它走 `pushWhole(..., hard)`，用绝对上限。修法：cap 改传绝对位置，并给日记留 `diaryShare`（默认 0.4）保底。
+
+**3. 快照靠用户自觉**
+
+`loom.db` 单文件明文无副本，README 把备份写成用户责任。现在默认每 24 小时 `VACUUM INTO` 一份、保留 7 份、放在库同级 `backups/`，空库不拍。产物自包含，不需要另拷 `-wal`。同盘快照挡不住硬盘故障，文档写明异地备份仍是用户责任。
+
+**另外两件**
+
+- 事实渲染加溯源：`source !== "manual" && confidence < 0.6` 的条目后缀「待确认」，协议解释其含义。此前 `facts` 有 `source` 和 `confidence` 但渲染没用，用户亲口说的和整合推断的看起来一样权威。
+- 新增第 11 个工具 `memory_handoff`：五格交接卡，全部原文引用，不改人设不写记忆，「下一步」刻意留空。
+
+**探针**
+
+新增 6 个，共 52 项断言，全部 exit 0：`probe-compaction`(12) / `probe-preference-resident`(7) / `probe-diary-budget`(5) / `probe-backup`(8) / `probe-fact-source`(6) / `probe-handoff`(14)。
+
+回归：selftest 30 项全过；`probe-audit*` / `probe-ceiling` / `probe-config` / `probe-degrade-notice` / `probe-hotload`（断言改为 11 个工具）/ `probe-prompt-guard` / `probe-recall` 与 `scenario-*` 六个场景全部 exit 0。
+
+**未覆盖**
+
+- 快照在真实 DSH 里的首次触发时机（探针用 10 秒维护间隔模拟，真实默认 60 秒）。
+- 偏好常驻对长会话预算的实际影响：每条约 15–40 token，默认最多 3 条，属可接受范围，但没有拿真实长会话量过。
+- 压缩探针只验证「插件侧状态不受压缩影响」，宿主压缩算法本身不在覆盖范围。
+
+## 十四、v0.2.16：事件块认不出自己
+
+问题不是「缺项目维度」，是「块认不出自己」。同一个人在两段对话里推进同一个项目，插件记成两块互不相干的事件；换个会话之后模型接不上。看起来像缺 `project_id`，实际缺的是块的可辨识与可枚举。
+
+**1. 实测：四块里三块认不出**
+
+本机真实库（`~/.dsh/memory/loom.db`，4 块 / 1 会话 / 4 条事实）：
+
+```
+财务·那么，装了这个插件，需不需要考虑上下文崩…     30 字 · 规则兜底
+用户想让AI主动追问                                114 字 模型生成
+技术·插件我更新了，你去更新一下                    13 字 规则兜底
+技术·也就是说，已经撞上了？                        30 字 规则兜底
+```
+
+模型路径那一块标题摘要都能用；三块规则兜底是「领域·原句」，摘要就是原句。前缀在同一批块上完全一样，还带错——那段讲插件与上下文预算的对话被判成 `财务`。
+
+**2. 标题取第一句，不取最长句**
+
+第一版取「最长句」，`scenario-merged` 立刻抓到：搜「辞职」期望命中 E1，实际只中 `D1`。E1 第一句含「辞职」，最长句是「她问我在怕什么…」——标题换掉之后关键词从钩子上消失了。改为「第一个 ≥6 字、去掉语气词开头的句子」，语气词表 `那么/但是/不过/所以/然后/对了/其实/也就是说/嗯/啊/诶/哎/哦`，同时剥掉残留的 `用户：`。上限 24 → 32 字符。
+
+模型路径：提示词「标题 ≤12 字」改成「≤16 字」，加一条要求带对象名（项目 / 工具 / 作品 / 人名 / 地点），空标题不再退化成领域名。
+
+**3. 摘要兜底与清单去重**
+
+摘要从「最长两句」改成「首句 + 最长句」。规则路径下标题就是摘要第一句，`标题 —— 摘要` 会说两遍同一句；清单渲染比较公共前缀，超过 12 字只印标题。
+
+**4. 新增第 12 个工具 `memory_episodes`**
+
+只列举不归并：按时间倒序列块（时间 / 类型 / `E` 编号 / 关联事实数 / 标题 / 摘要），支持 `query` 与 `days` 过滤，`limit` 默认 20。跨会话可见。归并留给模型——「这两块是不是同一个项目」是判断，插件做只会做错且无法解释。也不指望 `memory_search` 兼任：FTS 的 match 是二字组隐式 AND，「这个项目我都干过什么」没有关键词可用。
+
+**探针**
+
+新增 `probe-episodes`（18 项，全部通过）：空库不抛错、时间倒序、无领域前缀、两块各带自己的对象名（`loom` / `Blender`）、标题不被摘要重复、`query` 命中相关且排除无关、`days` 过滤、`limit`、跨会话合并、只读不改记忆块。`probe-hotload` 工具数断言改为 12，并加一条「`memory_episodes` 已注册」。
+
+**回归**
+
+selftest 30 项全过；`probe-*` 17 个脚本与 `scenario-*` 六个场景全部 exit 0。中途 `scenario-merged` 的「search 能命中冷区钩子」失败过一次，正是第 2 条描述的退化，改成取第一句后恢复。
+
+**当时未覆盖（下一节补上了第一条）**
+
+- 模型路径下标题是否真的带对象名：前面的探针都跑在规则模式（无 `llm`）上，只能固定提示词与兜底行为。
+- 块粒度：当时只写了「可能偏碎」，没有实测。
+
+## 十五、补验：模型路径与块粒度
+
+发布前把 §14 留下的两条未覆盖补上。两条都不改插件代码，只补测试。
+
+**1. 模型路径：假 llm 服务**
+
+此前所有探针都不提供 `llm`，跑的是规则兜底。v0.2.16 改的却是模型提示词（标题 ≤16 字、要求写具体对象）——「提示词写好了」和「模型照做」之间隔着一整条调用链，一行都没被执行过。
+
+`harness.mjs` 加了一个可选的 `llm` 参数（不传时行为与之前完全一致）和一个 `mockLlm(reply)` 工厂：它实现 `listProviders` / `listModels` / `stream` 三个成员，`stream` 推一个 text-delta 再推 `finish(stop)`，正是 `createLlmBridge` 消费的形状。假服务只在探针进程里存在。
+
+`probe-model-title.mjs`（16 项，全部通过）：
+
+| 断言 | 结果 |
+| --- | --- |
+| 模型路径被调用（不是静默退回规则） | ✓ 1 次抽取 + 1 次冲突判定 |
+| 抽取提示词含「具体对象」 | ✓ |
+| 抽取提示词含「≤16 字」 | ✓ |
+| 模型给的标题被采用 | ✓ `星轨渲染器·glTF 材质丢失` |
+| 标题不超 32 字 | ✓ |
+| 模型给的摘要被采用 | ✓ 含「相对路径」，不是原句截断 |
+| 模型给的事实落库 | ✓ `memory_search` 命中 `· fact ·` |
+| 块可按对象名检索 | ✓ `query=星轨` 命中 |
+| 记忆块里出现该标题 | ✓ 下一轮就能读到 |
+| 空标题退化成句子标题 | ✓ `loom 的 memory_episodes 现在能按天过滤了…`，不是裸领域名 |
+| 空标题的块仍可按原文检索 | ✓ |
+| 非 JSON 回复退回规则 | ✓ 块仍在，标题含 `Blender` |
+| 非 JSON 时对话不中断 | ✓ |
+| 模型流抛错时对话不中断 | ✓ 记忆块照常渲染 |
+| 模型流抛错时块照样生成 | ✓ |
+| 模型流抛错时不写脏事实 | ✓ 假事实文本没落库 |
+
+假服务不等于真模型：它能证明插件把请求发对了、把回包用对了、回包坏了会降级；不能证明真模型一定按提示词写标题。后者是提示词工程问题，只能在真机会话里回看。
+
+**2. 块粒度：先分清是配置还是行为**
+
+第一次测出来是「每轮一块」，6 轮 6 块。查下来不是 `drift`，是探针把 `consolidation.triggerTokens` 设成了 1：`completeTurn()` 的判定是 `tokenCount >= triggerTokens`，设 1 就是每轮整合一次，每次整合只看到 1 轮，自然一块一轮。默认是 20000。
+
+按真实节奏重测（每轮约 17 token，`triggerTokens=80` 让五轮凑成一次整合）：
+
+```
+五轮同一项目连续推进（材质缓存）→ 3 块
+  E1  我在给星轨渲染器加一个材质缓存…（前 3 轮）
+  E2  缓存键用文件路径加修改时间应该够（第 4 轮）
+  E3  先只缓存颜色贴图，法线贴图以后再说（第 5 轮）
+单条消息里混三个话题（缓存 / 配色 / 下雨）→ 1 块
+两条消息同一话题 → 各 1 块（同样是 triggerTokens 造成的）
+```
+
+结论：同一次整合里，前 3 轮被合并，第 4 轮「缓存键」和第 5 轮「只缓存颜色贴图」各成一块——段内 `drift`（`microTopicJaccard=0.3`）确实在切，切点停在「同一件事的不同侧面」。单条消息内部不切，混三个话题也是一块。
+
+对这个需求（让 AI 或用户按块归拢项目）来说，碎不是缺陷：块越小，标题越具体，越容易认领。代价是清单更长、prompt 里「我们一起经历过」更早被同项目的碎片占满。本次不改阈值，理由是改大之后同一块会混进多个话题，标题又变回含糊——那正是 v0.2.16 要修的问题。真要调，`segmentation.microTopicJaccard` 是唯一的旋钮。

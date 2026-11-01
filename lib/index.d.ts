@@ -77,6 +77,12 @@ interface Config$1 {
     maxItems: number;
     minScore: number;
     conflictPenalty: number;
+    /** How many recent standing preferences ride along on every turn (v0.2.15). */
+    residentPreferences: number;
+    /** Share of the subjective budget the diary keeps for itself (v0.2.15). */
+    diaryShare: number;
+    /** Below this confidence, facts not written by hand render as "unconfirmed" (v0.2.15). */
+    unconfirmedBelow: number;
     /** Print the tone an event was spoken in, when it was not neutral (Q64). */
     toneHint: boolean;
     layerPenalty: {
@@ -85,6 +91,13 @@ interface Config$1 {
       subjective: number;
       l0: number;
     };
+  };
+  /** Rolling local snapshots of the store (v0.2.15). */
+  backup: {
+    enabled: boolean;
+    keep: number;
+    everyHours: number;
+    dir: string;
   };
   /** Role policy. */
   roles: {

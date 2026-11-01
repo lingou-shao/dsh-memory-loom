@@ -26,10 +26,12 @@ try {
   if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
   console.error([
     '',
-    '这个自测要在 clone 下来的仓库里跑，安装包里没有 node_modules：',
+    '这个自测需要 node_modules，安装包里没有：',
     '',
-    '  git clone https://github.com/lingou-shao/dsh-memory-loom',
-    '  cd dsh-memory-loom && npm install && npm test',
+    '  ① 下载对应 release 附件里的 loom-e2e-*.zip，解压覆盖到解压后的包根目录',
+    '  ② 或者 git clone https://github.com/lingou-shao/dsh-memory-loom',
+    '',
+    '  然后在能解析 @deepseek-ai/* 的根目录里跑：npm install && npm test',
     '',
     `缺少的模块：${String(error.message).split('\n')[0]}`,
     ''

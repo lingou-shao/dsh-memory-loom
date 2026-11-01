@@ -44,11 +44,11 @@
 
 | 贴什么 | 例子 | 特点 |
 | --- | --- | --- |
-| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.12/dsh-memory-loom-0.2.12.tgz` | 版本钉死，装到的就是这一版 |
+| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.16/dsh-memory-loom-0.2.16.tgz` | 版本钉死，装到的就是这一版 |
 | **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，能拿到最新提交，但每次装到的内容会变 |
 | **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
-> **贴本地 tarball 的要注意一件事**：DSH 会把你给的源**原样**记成 profile 里的依赖——贴本地文件就写成 `"dsh-memory-loom": "file:C:/Users/you/Desktop/dsh-memory-loom-0.2.12.tgz"`，贴 git 地址就写成 `git+https://...`。也就是说，本地 tarball 的**绝对路径变成了长期依赖**：这个 tgz 一旦被挪走/删掉，再遇到「重新解析依赖」的场合（profile 的 `pnpm-lock.yaml` 丢失或重生成、pnpm store 被 prune、换机器、`--force` 重装）就会报 `Could not install from ... as it does not exist`。
+> **贴本地 tarball 的要注意一件事**：DSH 会把你给的源**原样**记成 profile 里的依赖——贴本地文件就写成 `"dsh-memory-loom": "file:C:/Users/you/Desktop/dsh-memory-loom-0.2.16.tgz"`，贴 git 地址就写成 `git+https://...`。也就是说，本地 tarball 的**绝对路径变成了长期依赖**：这个 tgz 一旦被挪走/删掉，再遇到「重新解析依赖」的场合（profile 的 `pnpm-lock.yaml` 丢失或重生成、pnpm store 被 prune、换机器、`--force` 重装）就会报 `Could not install from ... as it does not exist`。
 >
 > 规避办法（任选一条）：
 > - **tgz 别放桌面/下载目录**，放到固定位置再装，例如 `%USERPROFILE%\.dsh\vendor\`；
@@ -68,11 +68,11 @@ DSH 的插件管理器是**即时重组（live reconcile）**：pnpm 一装完�
 20:05:11  loom.db 被创建            ← 就是它调用了 apply()
 ```
 
-宿主主进程此前已经在跑（不需要新进程），当前会话的 id 也没变，只是收到一条 `### Updated Tool Schemas` 注入，9 个 `memory_*` 工具当场出现在工具列表里。
+宿主主进程此前已经在跑（不需要新进程），当前会话的 id 也没变，只是收到一条 `### Updated Tool Schemas` 注入，12 个 `memory_*` 工具当场出现在工具列表里。
 
 通常几秒内就能确认两件事：
 
-1. 工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 9 个 `memory_*` 工具。**不必新开会话**——当前会话会被刷新。若迟迟不出现，再重启 DSH（旧版宿主可能不支持热加载），或先排除下面「安装被拒绝」那种情况。
+1. 工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 12 个 `memory_*` 工具。**不必新开会话**——当前会话会被刷新。若迟迟不出现，再重启 DSH（旧版宿主可能不支持热加载），或先排除下面「安装被拒绝」那种情况。
 2. `%USERPROFILE%\.dsh\memory\loom.db`（Linux/macOS 是 `~/.dsh/memory/loom.db`）被创建。**`diary/` 目录不会跟着出现**——它是懒创建的，要等第一条日记落盘才建；刚装好看不到那个目录是正常的，不是没生效。
 
 > 注意区分：热加载只负责**挂载工具**。真正开始积累记忆（写事件、写日记）要等**整合**触发——单会话累计 2 万 token，或空闲 5 分钟。装完立刻问「你还记得什么」，答案当然是空的。
@@ -82,7 +82,7 @@ DSH 的插件管理器是**即时重组（live reconcile）**：pnpm 一装完�
 ### 方式二：tarball（离线 / 内网）
 
 ```bash
-npm install ./dsh-memory-loom-0.2.12.tgz
+npm install ./dsh-memory-loom-0.2.16.tgz
 ```
 
 ### 方式三：手动挂载
@@ -183,7 +183,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 
 ## 4. 模型工具
 
-插件注册九个工具，模型自己决定何时调用。
+插件注册十二个工具，模型自己决定何时调用。
 
 | 工具                | 参数                                                                  | 作用                                                                       |
 | ----------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -196,6 +196,9 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | `memory_expand`   | `ref`*, `offset`                                                    | 按编号取正文：`E` 事件 / `F` 事实上下文 / `D` 整理版 / `T` 最近未整理。超预算自动分页并给出续读指令           |
 | `memory_pack`     | `title`*, `text`*, `ref`                                            | 把整理好的叙事单独存为 `D` 并挂到钩子上，之后取回优先返回整理版。`T` 拒绝挂载（滚动区间挂不住固定正文）                 |
 | `memory_index`    | `action`*, `query`, `ref`                                           | `view` 常驻钩子 / `search` 全量（含冷区）/ `promote` 置顶 / `rebuild` 重建 / `gc` 清孤儿正文 |
+| `memory_doctor`   | —                                                                   | 只读体检：库连接、库文件与 WAL、`journal_mode`/`synchronous`、`quick_check`、六张表行数、最近一次召回时间、prompt 三块连续失败次数。库打不开时报告本身仍然可用（v0.2.14） |
+| `memory_handoff`  | —                                                                   | 生成交接卡：我是谁（身份 / 语气 / 价值观）、我们的关系、不能破的规矩、未完成、下一步。全部**原文引用**，不改人设也不写记忆；「下一步」刻意留空给人填（v0.2.15） |
+| `memory_episodes` | `query`, `days`, `limit`                                            | 列事件块，按时间倒序：时间 / 类型 / `E` 编号 / 关联事实数 / 标题 / 摘要，可按关键词与天数过滤。用来把同一件事、同一个项目的几段自己归拢——插件不建项目维度，也不读工作目录，能归拢的前提是块**可被枚举**（v0.2.16） |
 
 *`*` 表示必填。*
 
@@ -453,8 +456,69 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 
 1. **`schemastery` 同时写在 `dependencies` 和 `peerDependencies`** —— 必然触发 pnpm 的 peer 警告，还多拉一个副本。删掉 peer 里那份，只留 `dependencies`（DSH 环境里 peer 根本不装，留着只误导）。
 2. **加了 `engines.dsh: ">=0.2.1-rc.2 <0.3.0"`。** DSH 的兼容性预检优先读这个字段，读到就不再逐个比对 `peerDependencies` 里的 `@deepseek-ai/dsh-*`，比靠 peer 范围兜着精确。上限定 `<0.3.0` 是**故意的**：插件用到 `defineTool`、`systemPrompt.section`、session 事件这些宿主内部面，0.3 改语义时它不会自动知道——装不上比装上了坏掉好。
-3. **`npm test` 在安装位置不再甩堆栈。** `test/` 随包发布，但 `lib/index.js` 要 import `@deepseek-ai/dsh-tools`，而 DSH 的 pnpm 不装 peer、宿主解析在裸 `node` 进程里不存在，所以直接跑必然 `ERR_MODULE_NOT_FOUND`。现在脚本捕获这个错误，打印「回仓库 clone 后 `npm install && npm test`」就退出。
+3. **`npm test` 在安装位置不再甩堆栈。** `test/` 随包发布，但 `lib/index.js` 要 import `@deepseek-ai/dsh-tools`，而 DSH 的 pnpm 不装 peer、宿主解析在裸 `node` 进程里不存在，所以直接跑必然 `ERR_MODULE_NOT_FOUND`。现在脚本捕获这个错误，打印两条复跑路径（release 附件的 `loom-e2e-*.zip` 解压覆盖到包根目录，或 clone 仓库）就退出，不再甩堆栈。
 4. **`diary/` 是懒创建的。** 库里一条日记都没有时不会建目录——之前 README 写「重启后旁边多一个 `diary/`」，那是错的。现在写清：第一篇日记落盘后才出现。
+
+### v0.2.16：让每段经历自己认得出来
+
+这一版只回答一个问题：插件要不要建「项目」维度。答案是不要——它从不读工作目录，也无从知道两段对话属于同一个仓库。但它本来就有「一段一块」的事件块，块上带标题和摘要；缺的不是维度，是块的**可辨识度**和**可枚举**。
+
+1. **标题不再写「领域·原句」。** 实测库里四块有三块长这样：`技术·插件我更新了，你去更新一下`、`财务·那么，装了这个插件，需不需要考虑上下文崩…`。领域前缀在同一批块上完全一样（而且 `domain` 本身会判错：一段讲插件和上下文的对话被判成 `财务`），第一句又常以语气词开头。现在去掉前缀、去掉「那么 / 但是 / 也就是说」这类开头，保留**第一句**而不是最长句——按长度取会丢主题词，实测把含「辞职」的标题换成了不含「辞职」的长句，`scenario-merged` 立刻抓到搜索退化。
+2. **摘要兜底改成「首句 + 最长句」。** 此前降级路径只取最长两句，一段题外话就能把主题句挤出去。
+3. **提示词要求标题带对象名。** 「≤12 字」改成「≤16 字」，并写明：写清在做什么、涉及哪个具体对象（项目名 / 工具名 / 作品名 / 人名 / 地点），不要只写领域词，也不要照抄第一句。标题上限从 24 字符放宽到 32，够放一个项目名。
+4. **新增第 12 个工具 `memory_episodes`。** 「项目树让 AI 或用户自己搭」的前提是块能**被枚举**；`memory_search` 只有在你已经说出关键词时才找得到，而那正是你已经不需要索引的时候。这个工具按时间倒序列出块（时间 / 类型 / `E` 编号 / 关联事实数 / 标题 / 摘要），可按关键词和天数过滤，每行的 `E` 编号能直接交给 `memory_expand`。跨会话可见——换个会话，上个会话的块还在同一份清单里。
+5. **清单不把同一句说两遍。** 规则路径下标题就是摘要的第一句，直接渲染成 `标题 —— 摘要` 会重复。现在两者公共前缀超过 12 字时只印标题。
+
+**这一版仍然不建项目维度，也不替谁生成项目树**：它只保证每块看得出讲的是哪件事、并且列得出来。归拢这件事留给模型和用户。
+
+新增探针 `probe-episodes`（18 项）：空库不抛错、时间倒序、无领域前缀、两块各自带自己的对象名、标题不被摘要重复、`query` 只命中相关块、`days` 过滤、`limit`、跨会话合并、只读不改记忆块。
+
+另一支 `probe-model-title`（16 项）补的是上一段没覆盖的部分：前面所有探针都不带 `llm`，改的却是模型提示词，那条链一行都没跑过。它给 harness 一个假 `llm` 服务，走完 `extractWithModel → bridge → 解析 → 落库`，验证标题/摘要/事实确实按模型回包写入、空标题退化成句子、非 JSON 与流抛错都退回规则且对话不中断。
+
+块粒度也实测了：五轮同一项目、一次整合，得到 3 块（前 3 轮合并，后两轮各一块），单条消息内部不切。碎是真的，来源是段内 `drift`（`microTopicJaccard=0.3`）；这一版**不调**——块小对「按块认领项目」是加分，调大反而让一块混进多个话题、标题重回含糊。
+
+### v0.2.15：修好三个「以为有、其实没有」
+
+这一版全部来自对照外部记忆架构文章的自查，以及写探针时撞见的真实缺陷。核心是三条：**偏好会消失、日记会被挤掉、快照靠自觉**。
+
+1. **长期偏好改为常驻（最重要）。** 此前一条偏好只有一种召回路径：`preferences_fts MATCH`，而 match 是把用户这句话的每个中日韩二字组用空格连起来——在 FTS5 里是隐式 AND。「记得我不吃香菜吗」被拆成 `记得 得我 我不 不吃 吃香 香菜 菜吗`，要求七个词全部出现在偏好文本里，实际一个都命中不了，**整块记忆变成空串**。现在最近 `retrieval.residentPreferences`（默认 3）条偏好每轮都带，另外用 OR 匹配补命中（`compileLooseMatch`），bm25 仍把命中更多的排前面。设为 0 即回到旧行为。
+2. **主观层预算修正。** `appendSection` 比较的是全局 `used`，但调用方传进去的是「块内配额」的数值（`target × subjectiveShare`）。事实区一旦超过这个绝对值，印象和日记就整块消失，配置里还写着启用，且没有任何报错。改为传绝对位置，并给日记留 `retrieval.diaryShare`（默认 40%）的保底，避免长印象把日记挤空。
+3. **每日滚动快照。** 用 `VACUUM INTO` 生成自包含副本（不需要另拷 `-wal`），默认每 24 小时一次、滚动保留 7 份、放在库同级 `backups/`；库还空的时候不拍。给出配置 `backup.enabled` / `everyHours` / `keep` / `dir`。**它挡「误删和写坏」，不挡「硬盘坏了」**，异地备份仍是用户责任。
+4. **事实标注来源。** `facts` 表一直有 `source` 与 `confidence`，渲染时却没用上，于是用户亲口说的和整合时推断的看起来一样权威。现在低置信度（`retrieval.unconfirmedBelow`，默认 0.6）且非手动写入的条目后缀 `（待确认）`，协议里也解释了它的含义。
+5. **新增第 11 个工具 `memory_handoff`。** 五格交接卡：我是谁（身份 / 语气 / 价值观）、我们的关系、不能破的规矩、未完成、下一步。全部**原文引用**，不改人设也不写记忆；「下一步」刻意留空——自动生成的下一步会和自动摘要一起被压掉，那正是要防的事。
+6. **补压缩豁免探针。** `compaction/start` 一直只做 WAL checkpoint，文档也一直声称「压缩不影响记忆」，但从没有断言。`probe-compaction.mjs` 在压缩前后各取一次三块 prompt，逐条比对。
+
+新增探针：`probe-preference-resident`（7 项）、`probe-diary-budget`（5 项）、`probe-backup`（8 项）、`probe-fact-source`（6 项）、`probe-handoff`（14 项）、`probe-compaction`（12 项）。
+
+### v0.2.14：失忆不再无声，并给模型一个自检工具
+
+v0.2.13 把 prompt 求值失败降级成空块，对话能继续了，但**没人知道它在失忆**——模型照常回答，用户看不出差别。这一版补两件事：
+
+1. **连续失败 3 次后，记忆块吐一句状态行。** 三块里只有记忆块每轮必被求值，所以由它带这句话：`【记忆状态】记忆读取已连续失败 3 次（memory），本轮的记忆内容缺失或不完整（…）。请如实说明记忆暂时读不出来，不要凭印象编造；需要排查时可调用 memory_doctor，不必每轮都调。` 任一 label 成功即清零，库恢复后这句自动消失；前两次失败仍保持静默，避免偶发重试刷屏。代价是降级期间每轮多约 90 token——只在坏掉时才有。
+2. **新增第 10 个工具 `memory_doctor`。** 只读、逐项体检：库连接、库文件大小与修改时间、WAL、`journal_mode`/`synchronous`、`quick_check`、六张表行数、最近一次 `recall` 的时间、prompt 三块的连续失败。每项独立 try/catch——库彻底打不开时它报的是「✗ 库连接」加下一步建议，而不是再抛一次异常。它**只诊断不修**。
+
+另外补一处终检发现的疏漏：`agent/disposed` 里现在也会清掉这张 per-session 的健康登记表，避免会话越开越多时它只增不减。
+
+实测（`loom-e2e/probe-degrade-notice.mjs`）：健康时不出状态行；断库后第 1、2 次为空块，第 3 次出现状态行且只出现一次（人设与索引块仍为空）；同一状态下 `memory_doctor` 不抛错，报出 `✗ 库连接 database is not open`，并给出「先确认有没有第二个 DSH 实例占着它」。
+
+### v0.2.13：prompt 块求值失败不再打断整轮对话
+
+来源是装了这个插件的 DSH 自己做的代码审查：它指出 `recallFor()` 外面没有 try/catch，而宿主可能不兜底。顺着这条查下去，比它说的更糟一点——宿主确实不兜底，而且会抛的不止一块。
+
+**宿主侧的事实**（读的是本机 `D:\dsh\resources\app.asar` 里的实际实现）：
+
+| 位置 | 事实 |
+| --- | --- |
+| `@deepseek-ai/dsh-system-prompt` `assemble()` | 直接调 `section.text(context)` 与 `resolveContext(entry, context)`，**全文件没有 try/catch** |
+| 同文件 `required: true` | 只用于「运行期上下文被抑制时不要丢」，**与异常无关** |
+| `@deepseek-ai/dsh-agent-loop` `preStep()` | `await this.loopCtx.systemPrompt.assemble(...)` 直接调用 |
+| 同文件 `turn()` | 外层 catch 把异常折成 `turn/end: { reason: { kind: "error" } }` 后 rethrow |
+
+所以库被删、损坏、磁盘满、连接被占时：本轮以 error 结束，**下一轮组装再抛一次**——不是崩溃，是每一轮都失败，直到库恢复。会抛的有三块（persona / hooks / memory），前面两块此前没人注意。
+
+**修法**：`guardPrompt(label, fn)` 统一包住三块，失败返回 `""`，同一 label 60 秒内只告警一次。空块会被宿主过滤（`renderPrompt` 与 `renderContextSections` 都是 `filter(text.length > 0)`），不会留下空标题或空段落——这一轮没有记忆，但对话继续。
+
+新增 `loom-e2e/probe-prompt-guard.mjs` 固定这条：关闭引擎（等效于库不可用）后三块都必须返回空串。修复前 3/3 抛错，修复后 3/3 降级为空块。
 
 ### v0.2.12：更正「必须重启」，并补上热加载漏挂的三块
 
@@ -501,7 +565,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 - **删除**：`memory_forget` 软删除 → 冷静期 → 硬删；`memory_identity erase` 按角色处理；路人原始对话到期自动清除，事实保留但降权。
 - **导出**：`memory_identity export` 给出 JSON；`engine.exportData` 是同一份数据。
 - **审计**：每次写入、修改、删除、整合都进 `audit` 表；`traces` 只保留 14 天。
-- **备份是用户的责任**（Q59）：插件不做对象存储备份，也不上传任何东西。
+- **插件自己留本地快照**（v0.2.15 起）：默认每 24 小时一次，滚动保留 7 份，落在库文件同级的 `backups/` 下。它解决「误删/写坏」，不解决「硬盘坏了」——同一个盘上的快照跟着一起没。异地备份仍然是用户的责任（Q59），插件不做对象存储，也不上传任何东西。
 
 ### 安全事实（可自行复核）
 
@@ -526,9 +590,22 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 
 如果你在别人的分支/PR 里看到 `loom.db`、`.env`、带真实对话的 `.jsonl`，那一定是误提交，不要 merge。
 
-### ⚠️ 备份提醒：这是唯一需要你自己动手的事
+### 备份：插件会自己留 7 份，但只留在同一个盘上
 
-这个插件的全部记忆只有**一个 SQLite 文件**，没有云端副本、没有第二份。库文件丢了，记忆就没了——这一点插件替你兜不了。
+这个插件的全部记忆只有**一个 SQLite 文件**，没有云端副本。v0.2.15 起插件会自己滚动留快照，但那只挡住「手滑删了」「写到一半断电」，挡不住「硬盘坏了」「这台机器没了」。
+
+**插件自己做的部分**（v0.2.15）
+
+| 项 | 默认 | 配置 |
+| --- | --- | --- |
+| 是否快照 | 开 | `backup.enabled` |
+| 间隔 | 24 小时 | `backup.everyHours`（1–720） |
+| 保留份数 | 7 | `backup.keep`（1–60） |
+| 位置 | 库文件同级的 `backups/` | `backup.dir`（相对库目录，或绝对路径） |
+
+快照用 SQLite 的 `VACUUM INTO` 生成，所以**单个文件就是完整副本**，不需要再拷 `-wal`；文件名形如 `loom-2026-11-01-1045.db`，按时间排序自动清理旧的。库还是空的时候不拍（省得占满名额）。
+
+**你自己要做的部分**：把某一份拷到**另一块盘或另一台机器**。这一步插件替不了你。
 
 **要备份什么**
 
@@ -550,7 +627,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 
 不确定的话，直接在 DSH 里问：*「memory 插件的 path 配置是什么？」* 或让它调 `memory_identity export` 导出一份 JSON 作旁证。
 
-**怎么备**
+**怎么备（手动，用于异地）**
 
 最稳的是停掉 DSH 再拷，三个文件一起拷：
 
@@ -591,7 +668,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 | 相册（Q22）             | 未实现                                   | 图片记忆需要单独的相似度通道与存储，留作扩展点              |
 | 对话历史去重（Q45）         | 未做 `in_conversation` 标记               | 记忆块与对话历史由宿主分别管理，重复内容靠模型读上下文消解        |
 | 主观层配额的动态下调（Q30/Q31） | 固定 25%                                | 需要跨轮统计命中率；当前每轮独立计算                   |
-| 备份（Q58/Q59）         | 不做                                    | 按 Q59，备份责任在用户                        |
+| 备份                    | 本地滚动快照（v0.2.15）                 | 每 `backup.everyHours` 一次、保留 `backup.keep` 份；异地备份仍是用户责任（Q59） |
 | 48 小时整合兜底（Q2）       | 用 5 分钟空闲触发替代                          | 到期判定是「有未整合轮次 + 空闲满 5 分钟」，比 48h 严格更早；两者本来跑在同一个 tick 上，替换不引入新漏点 |
 | 单条消息上限              | 默认不限制（`0`），可设 `l0.maxCharsPerMessage` | 0.1.x–0.2.0 曾硬编码 8000 字截断且无提示，现在整条落库 |
 | 正文无语义检索             | 只能顺钩子/编号取回；入口是模型自己调 `memory_expand`，找不到时先用 `memory_search` 按关键词定位 | 设计而非缺陷：想起来的是钩子，细节主动去捞。`memory_search` 走 FTS5，不受 16 条钩子限制，所以「不在索引里」不等于「找不回来」 |
@@ -617,7 +694,7 @@ docs/
 loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.md 随包发布）
   harness.mjs         用假 cordis context 跑真插件
   scenario-work.mjs   工作类：写代码 + 表格两条线（18 项断言）
-  scenario-merged.mjs 融合后完整链路（22 项）
+  scenario-merged.mjs 融合后完整链路（25 项）
   scenario-limit.mjs  极限类：上下文打满后是否正常（17 项）
   scenario-l0cap.mjs  长消息不截断的存储代价（15 项）
   scenario-diary.mjs  日记镜像与语气标注（17 项，v0.2.9）
@@ -629,39 +706,49 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
   probe-audit2.mjs    配置项是否真的生效（整合开关 / 通配符转义 / ownerName / locale）
   probe-audit3.mjs    驻留预算上限、挂载不存在的编号、驻留快照稳定性
   probe-hotload.mjs   热加载：会话先存在、插件后组合时，四块 prompt 内容是否都挂上（v0.2.12）
+  probe-prompt-guard.mjs  prompt 块求值失败时是否降级为空块（v0.2.13）
+  probe-compaction.mjs   压缩前后三块 prompt 是否逐字节不变、WAL 是否被 checkpoint（v0.2.15）
+  probe-preference-resident.mjs  长期偏好是否常驻、OR 匹配是否生效（v0.2.15）
+  probe-diary-budget.mjs 事实撑满预算时，印象与日记会不会被整块挤掉（v0.2.15）
+  probe-backup.mjs      滚动快照是否生成、可读、按份数清理（v0.2.15）
+  probe-fact-source.mjs 事实的「待确认」标注是否只打在低置信推断上（v0.2.15）
+  probe-handoff.mjs     交接卡五格是否齐全、规矩是否原文引用、下一步是否留空（v0.2.15）
+  probe-episodes.mjs    事件块能否列出、标题是否带对象名、跨会话是否合并（v0.2.16）
+  probe-model-title.mjs 假 llm 服务走通模型路径：标题/摘要/事实是否真被采用、坏回包是否降级（v0.2.16）
   REPORT.md           上述场景的断言矩阵与结论
 cordis.patch.yml      bundle patch：把插件挂进 profile
 .env.example          环境变量示例（本插件不需要任何密钥）
 ```
 
-`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 22 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 6200 行：
+`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 6800 行：
 
-| region | 行（v0.2.12） | 职责 |
+| region | 行（v0.2.16） | 职责 |
 | --- | --- | --- |
 | `src/engine/time.ts` | 7–331 | 时区、`day_key`、本地日界、短日期格式 |
-| `src/engine/types.ts` | 332–409 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
-| `src/config.ts` | 410–574 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
-| `src/engine/db.ts` | 575–915 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
-| `src/engine/text.ts` | 916–1149 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
-| `src/engine/store.ts` | 1150–1891 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
-| `src/engine/decay.ts` | 1892–1961 | 衰减与时效权重 |
-| `src/engine/domain.ts` | 1962–2267 | 10 个固定域的判定与中英标签 |
-| `src/engine/salience.ts` | 2268–2459 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
-| `src/engine/segment.ts` | 2460–2682 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
-| `src/engine/consolidate.ts` | 2683–3332 | 整合：抽取、写事实与事件、叙事证据 |
-| `src/engine/roles.ts` | 3333–3527 | 主人 / 朋友 / 路人权限梯度与可见性 |
-| `src/engine/maintenance.ts` | 3528–3651 | 每轮维护：衰减、去重、trace 清理、路人到期 |
-| `src/engine/render.ts` | 3652–3891 | 记忆块与分页渲染（`SECTION`、预算） |
-| `src/engine/retrieval.ts` | 3892–4223 | 召回、排序融合、冲突检测、分页切片 |
-| `src/engine/persona.ts` | 4224–4400 | 人设卡五区、自我叙述、对他的印象 |
-| `src/engine/diary-mirror.ts` | 4401–4460 | 日记 Markdown 镜像（v0.2.9） |
-| `src/engine/index.ts` | 4461–4949 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
-| `src/host.ts` | 4950–5060 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
-| `src/tools.ts` | 5061–5539 | 9 个 `memory_*` 工具与参数校验 |
-| `src/index-layer.ts` | 5540–5937 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
-| `src/index.ts` | 5938–6201 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
+| `src/engine/types.ts` | 332–430 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
+| `src/config.ts` | 431–604 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
+| `src/engine/db.ts` | 605–945 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
+| `src/engine/text.ts` | 946–1193 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
+| `src/engine/store.ts` | 1194–1953 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
+| `src/engine/decay.ts` | 1954–2023 | 衰减与时效权重 |
+| `src/engine/domain.ts` | 2024–2329 | 10 个固定域的判定与中英标签 |
+| `src/engine/salience.ts` | 2330–2521 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
+| `src/engine/segment.ts` | 2522–2744 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
+| `src/engine/consolidate.ts` | 2745–3454 | 整合：抽取、事件标题与摘要、写事实与事件、叙事证据 |
+| `src/engine/roles.ts` | 3455–3649 | 主人 / 朋友 / 路人权限梯度与可见性 |
+| `src/engine/maintenance.ts` | 3650–3773 | 每轮维护：衰减、去重、trace 清理、路人到期 |
+| `src/engine/backup.ts` | 3774–3832 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
+| `src/engine/render.ts` | 3833–4096 | 记忆块与分页渲染（`SECTION`、预算） |
+| `src/engine/retrieval.ts` | 4097–4443 | 召回、排序融合、冲突检测、分页切片 |
+| `src/engine/persona.ts` | 4444–4620 | 人设卡五区、自我叙述、对他的印象 |
+| `src/engine/diary-mirror.ts` | 4621–4680 | 日记 Markdown 镜像（v0.2.9） |
+| `src/engine/index.ts` | 4681–5169 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
+| `src/host.ts` | 5170–5280 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
+| `src/tools.ts` | 5281–6076 | 12 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单 |
+| `src/index-layer.ts` | 6077–6474 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
+| `src/index.ts` | 6475–6833 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
 
-行号对应 v0.2.12，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
+行号对应 v0.2.16，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 
 `loom-e2e/` 单独跑需要 `npm install`（它复用父目录的 `node_modules`），运行方式：
 

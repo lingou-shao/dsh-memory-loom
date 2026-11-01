@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory-loom",
-  "version": "0.2.12",
+  "version": "0.2.16",
   "description": "Layered, person-aware long-term memory for DeepSeek Harness: raw turns (L0), atomic facts (L1), event summaries (L2), self-narrative (L3), a subjective layer and a persona card, plus a pointer-only hook index — hooks in the prompt, bodies pulled on demand — all in one local SQLite file",
   "keywords": [
     "dsh",
