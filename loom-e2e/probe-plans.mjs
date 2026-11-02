@@ -12,6 +12,8 @@
  *   3. a plan that *also* matched the query renders once, not twice
  *   4. maxPlans: 0 removes the zone entirely
  *   5. the block stays inside its hard cap with plans present
+ *   6. a plan finished early can be closed from the line, and then leaves
+ *   7. a plan that just got asked (gap not elapsed) still carries its id
  */
 
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -145,6 +147,93 @@ try {
     const rough = Math.round(cjk * 0.65) + Math.round((block.length - cjk) * 0.25);
     check('块未超过硬顶太多', rough <= 1400, `约 ${rough} token / ${block.length} 字`);
     loom.dispose();
+  }
+  console.log('\n[6] 提前做完的计划当场收掉，不留在计划区里');
+  {
+    const { loom } = boot('early');
+    await loom.call('memory_write', { text: '下周五去体检', kind: 'plan' }, SESSION);
+    await loom.call('memory_write', { text: '我打算戒烟', kind: 'plan' }, SESSION);
+    const block = loom.memoryBlock(SESSION);
+    const dated = block.split('\n').find((row) => row.includes('体检')) ?? '';
+    const open = block.split('\n').find((row) => row.includes('戒烟')) ?? '';
+
+    /*
+     * 这一组的起因是一个真实缺口，不是想象出来的：用户说「下周五发」，
+     * 结果提前十一天就发了。计划区只在过期后才给催问指令，在那之前他
+     * 说「发了」，模型手上没有任何理由去收尾，于是这条计划会在两周后
+     * 回头问一件他早就答过的事。行上那句 `memory_resolve(id=N)` 就是
+     * 补这个口子 —— 也是模型唯一能拿到 id 的地方。
+     */
+    check('未到期的计划行给出了收尾入口', /memory_resolve\(id=\d+, done=true\)/u.test(dated), dated);
+    check('未定期限的计划也一样（它同样会提前做完）', /memory_resolve\(id=\d+, done=true\)/u.test(open), open);
+    check('未定期限的行不带「到期后」', !open.includes('到期后'), open);
+    check('没日期的行不再跟一个「· 截止」标签', !open.includes('· 截止'), open);
+
+    const datedId = Number(dated.match(/memory_resolve\(id=(\d+)/u)?.[1] ?? Number.NaN);
+    const openId = Number(open.match(/memory_resolve\(id=(\d+)/u)?.[1] ?? Number.NaN);
+    check(
+      '两行各自给的是自己的 id',
+      Number.isInteger(datedId) && Number.isInteger(openId) && datedId !== openId,
+      `${String(datedId)} / ${String(openId)}`,
+    );
+
+    const said = String(await loom.call('memory_resolve', { id: datedId, done: true, note: '提前去的' }, SESSION));
+    check('到期前收尾被接受', /办成了/u.test(said), said);
+
+    const after = loom.memoryBlock(SESSION);
+    check(
+      '收掉的那条不再出现在计划区',
+      !after.split('\n').some((row) => row.includes('· 截止] 下周五去体检')),
+      after.split('\n').find((row) => row.includes('体检')) ?? '（块里已经没有它）',
+    );
+    check('留下的是一条「已办成」的事实', /下周五去体检 —— 已办成（\d\d-\d\d 确认），提前去的/u.test(after));
+    check('另一条计划没被连坐', after.includes('我打算戒烟'));
+    check(
+      '收尾写出来的不是一条计划',
+      !after.split('\n').some((row) => row.includes('· 截止] 下周五去体检 —— 已办成')),
+    );
+
+    const again = String(await loom.call('memory_resolve', { id: datedId, done: true }, SESSION));
+    check('重复收尾被挡下，不再写第二条事实', /之前已经收过尾/u.test(again), again);
+    loom.dispose();
+  }
+
+  console.log('\n[7] 过期了、刚问过、还没到再问的时候，行上仍要有编号');
+  {
+    const { loom, dbPath } = boot('asked');
+    await loom.call('memory_write', { text: '下周五去体检', kind: 'plan' }, SESSION);
+    const first = loom.memoryBlock(SESSION).split('\n').find((row) => row.includes('体检')) ?? '';
+    const id = Number((first.match(/memory_resolve\(id=(\d+)/u) ?? [])[1]);
+    loom.dispose();
+
+    /*
+     * 造出那个窗口：计划刚过期、上一条已经问过、再问间隔（默认 2 天）还没到。
+     * 改的是库里的两个时间戳，不是插件行为 —— 自然等到这格要两天。
+     *
+     * `due_from` 一起往前挪。只把 `expires_at` 拨到过去会渲染出
+     * `11-13~11-03` 这种反区间，而真实数据里不会出现那样的样本；
+     * 用一个不存在的样本去锁断言，锁住的是伪造本身。
+     */
+    const now = Date.now();
+    const db = new DatabaseSync(dbPath);
+    db.prepare("UPDATE facts SET due_from = ?, expires_at = ?, nudged_at = ? WHERE kind = 'plan'").run(
+      now - 25 * 3600_000,
+      now - 3600_000,
+      now,
+    );
+    db.close();
+
+    const reopened = createLoom({ dbPath, config: {} });
+    const line = reopened.memoryBlock(SESSION).split('\n').find((row) => row.includes('体检')) ?? '';
+    check('这一行确实已经过期', line.includes('· 已到期'), line);
+    check('还没到再问的时候，所以没有催问句', !line.includes('后来成了吗'), line);
+    check(
+      '但它仍然带着编号',
+      new RegExp(`memory_resolve\\(id=${String(id)}, done=true\\)`, 'u').test(line),
+      line,
+    );
+    check('同一行里只出现一次收尾调用', (line.match(/memory_resolve\(/gu) ?? []).length === 1, line);
+    reopened.dispose();
   }
 } finally {
   rmSync(root, { recursive: true, force: true });

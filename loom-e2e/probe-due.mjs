@@ -218,6 +218,12 @@ try {
     check('待确认里写了原记录', block.includes('原记'));
     check('待确认行给出 settle 的 id', new RegExp(`memory_settle\\(id=${String(first)}\\)`, 'u').test(block));
     check('收窄而不是改期 → 说细到', block.includes('说细到'), line);
+    /*
+     * 一条计划上并排放 `memory_settle` 和 `memory_resolve`，模型没法判断该先
+     * 答哪一个 —— 这是 `planItem` 当初关掉 `ask` 的同一个理由，收尾入口也得
+     * 遵守。等改期落定，下一轮自然会有。
+     */
+    check('待确认的那一行不给收尾入口', !line.includes('memory_resolve('), line);
     check('原区间还在（没被静默改掉）', /\[\d\d-\d\d~\d\d-\d\d · 截止\] 用户打算下周去看房子/u.test(block));
 
     const accepted = await loom.call('memory_settle', { id: first, accept: true }, SESSION);
@@ -225,6 +231,11 @@ try {
     const after = loom.memoryBlock(SESSION);
     check('改成单日（区间收窄成一天）', /\[\d\d-\d\d · 截止\] 用户打算下周去看房子/u.test(after), after.split('\n').find((row) => row.includes('房子')) ?? '(无)');
     check('待确认消失', !after.includes('时间待确认'));
+    check(
+      '改期落定之后，收尾入口回来了',
+      /memory_resolve\(id=\d+, done=true\)/u.test(after),
+      after.split('\n').find((row) => row.includes('房子')) ?? '(无)',
+    );
     loom.dispose();
   }
 
