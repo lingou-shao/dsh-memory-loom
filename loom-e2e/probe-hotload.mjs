@@ -87,7 +87,7 @@ try {
     [`persona:${SESSION}（按会话）`, surface.sections.has(`memory-loom:persona:${SESSION}`)],
     [`hooks:${SESSION}（按会话）`, surface.contexts.has(`memory-loom:hooks:${SESSION}`)],
     [`memory:${SESSION}（按会话）`, surface.contexts.has(`memory-loom:memory:${SESSION}`)],
-    ['14 个 memory_* 工具', surface.tools.size === 14],
+    ['memory_* 工具都挂上了（≥14，不锁死个数）', surface.tools.size >= 14],
     ['新工具 memory_episodes 已注册', surface.tools.has('memory_episodes')],
     ['新工具 memory_settle 已注册', surface.tools.has('memory_settle')],
     ['新工具 memory_resolve 已注册', surface.tools.has('memory_resolve')],

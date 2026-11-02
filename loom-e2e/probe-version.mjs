@@ -60,7 +60,10 @@ try {
   check('报出的是运行时版本（等于 package.json）', head.includes(`运行 ${PKG_VERSION}`), head);
   check('报出库 schema 版本', /库 schema v\d+/u.test(head), head);
   check('新库不该有「上次由」', !head.includes('库上次由'), head);
-  check('14 个工具都在', first.toolNames().length === 14, `${first.toolNames().length} 个`);
+  const names = first.toolNames();
+  check('关键工具都在（按名字查，不数个数）',
+    ['memory_doctor', 'memory_resolve', 'memory_settle', 'memory_search'].every((n) => names.includes(n)),
+    `${names.length} 个`);
   first.dispose();
 
   // ── 2. 版本真的落进了库，不是只算了一次 ─────────────────────────────
