@@ -74,11 +74,22 @@ interface Config$1 {
     budgetTokens: number;
     hardCapTokens: number;
     subjectiveShare: number;
+    /** Facts and events only; subjective rows are budgeted downstream (v0.2.19). */
     maxItems: number;
     minScore: number;
     conflictPenalty: number;
     /** How many recent standing preferences ride along on every turn (v0.2.15). */
     residentPreferences: number;
+    /** How many plans ride along on every turn, independent of the query (v0.2.19). */
+    maxPlans: number;
+    /**
+     * Days between two asks about the same unanswered plan (v0.2.23).
+     *
+     * The first ask is immediate, at the deadline. An unanswered plan stays in
+     * the zone until `memory_resolve` gives it an outcome; this only bounds how
+     * often the block asks. `0` restores ask-once.
+     */
+    planNudgeDays: number;
     /** Share of the subjective budget the diary keeps for itself (v0.2.15). */
     diaryShare: number;
     /** Below this confidence, facts not written by hand render as "unconfirmed" (v0.2.15). */
@@ -213,6 +224,15 @@ declare class HookIndex {
     noteAccess(identityId: string, ref: string): void;
 }
 declare function parseRef(raw: string): Ref | null;
+/** A deadline as an interval; `precision` says how much to trust the edges. */
+interface DueWindow {
+    kind: "absolute" | "relative";
+    from: number;
+    to: number;
+    precision: "day" | "week" | "month" | "fuzzy";
+    phrase: string;
+}
+declare function parseDue(text: string, baseTs: number, timeZone: string | null): DueWindow | undefined;
 declare function sliceByTokens(text: string, offset: number, budget: number): {
     piece: string;
     end: number;
@@ -220,4 +240,4 @@ declare function sliceByTokens(text: string, offset: number, budget: number): {
 };
 declare function estimateTokens(text: string): number;
 //#endregion
-export { Config, apply, inject, name, HookIndex, indexDefaults, estimateTokens, parseRef, sliceByTokens };
+export { Config, apply, inject, name, HookIndex, indexDefaults, estimateTokens, parseDue, parseRef, sliceByTokens };
