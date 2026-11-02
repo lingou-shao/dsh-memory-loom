@@ -44,11 +44,11 @@
 
 | 贴什么 | 例子 | 特点 |
 | --- | --- | --- |
-| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.23/dsh-memory-loom-0.2.23.tgz` | 版本钉死，装到的就是这一版 |
+| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.24/dsh-memory-loom-0.2.24.tgz` | 版本钉死，装到的就是这一版 |
 | **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，能拿到最新提交，但每次装到的内容会变 |
 | **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
-> **贴本地 tarball 的要注意一件事**：DSH 会把你给的源**原样**记成 profile 里的依赖——贴本地文件就写成 `"dsh-memory-loom": "file:C:/Users/you/Desktop/dsh-memory-loom-0.2.23.tgz"`，贴 git 地址就写成 `git+https://...`。也就是说，本地 tarball 的**绝对路径变成了长期依赖**：这个 tgz 一旦被挪走/删掉，再遇到「重新解析依赖」的场合（profile 的 `pnpm-lock.yaml` 丢失或重生成、pnpm store 被 prune、换机器、`--force` 重装）就会报 `Could not install from ... as it does not exist`。
+> **贴本地 tarball 的要注意一件事**：DSH 会把你给的源**原样**记成 profile 里的依赖——贴本地文件就写成 `"dsh-memory-loom": "file:C:/Users/you/Desktop/dsh-memory-loom-0.2.24.tgz"`，贴 git 地址就写成 `git+https://...`。也就是说，本地 tarball 的**绝对路径变成了长期依赖**：这个 tgz 一旦被挪走/删掉，再遇到「重新解析依赖」的场合（profile 的 `pnpm-lock.yaml` 丢失或重生成、pnpm store 被 prune、换机器、`--force` 重装）就会报 `Could not install from ... as it does not exist`。
 >
 > 规避办法（任选一条）：
 > - **tgz 别放桌面/下载目录**，放到固定位置再装，例如 `%USERPROFILE%\.dsh\vendor\`；
@@ -87,7 +87,7 @@ DSH 用 pnpm 把包装进 profile（`~/.dsh/profiles/<profile>/node_modules`）�
 1. **先备份库**：把 `%USERPROFILE%\.dsh\memory\loom.db` 复制一份。第一次加载新代码会 `ALTER TABLE` 加列（0.2.23 加三列），备份是为了万一出问题有退路。
 2. 装新版（粘新链接 / `dsh plugin add` / `pnpm install`，同平常）。
 3. **把 DSH 完全退出再打开**（不是新开会话，是重启进程）。
-4. 用 `memory_doctor` 第一行确认：应该显示 `运行 0.2.23 · 库 schema v4`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版。
+4. 用 `memory_doctor` 第一行确认：应该显示 `运行 0.2.24 · 库 schema v4`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版。
 
 通常几秒内就能确认两件事：
 
@@ -101,7 +101,7 @@ DSH 用 pnpm 把包装进 profile（`~/.dsh/profiles/<profile>/node_modules`）�
 ### 方式二：tarball（离线 / 内网）
 
 ```bash
-npm install ./dsh-memory-loom-0.2.23.tgz
+npm install ./dsh-memory-loom-0.2.24.tgz
 ```
 
 ### 方式三：手动挂载
@@ -363,7 +363,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 
 ## 7. 更新日志
 
-**v0.2.16 之后有七个中间版本（v0.2.17 ~ v0.2.22）没有单独发布**，它们的内容全部包含在 v0.2.23 里。下面仍然按版本逐条记录，是为了让每处改动都有出处；从 v0.2.16 升上来只需要读 v0.2.23 一节。七个版本各自解决的是：
+**v0.2.16 之后有七个中间版本（v0.2.17 ~ v0.2.22）没有单独发布**，它们的内容全部包含在 v0.2.23 里。下面按版本逐条记录，是为了让每处改动都有出处。从 v0.2.16 升上来，读 v0.2.24 与 v0.2.23 两节就够（v0.2.24 只补了「自报版本」和「升级要重启」，功能与 v0.2.23 相同）。各版本一句话：
 
 | 版本 | 一句话 | 主要改动 |
 | --- | --- | --- |
@@ -374,6 +374,37 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | v0.2.21 | 把嘴上说的日子都认下来 | 30 多种说法；三个「认成别的日子」修掉 |
 | v0.2.22 | 期限是给没做的事的 | 窗口只挂 `kind=plan`；`memory_resolve` 收尾 |
 | v0.2.23 | 没有结果，就一直问下去 | `nudged_at` 变时间锚；名额按最久没问轮转 |
+| v0.2.24 | 让插件说得出自己在跑哪一版 | `BUILD_VERSION` + doctor 版本行；升级必须重启 |
+
+### v0.2.24：升级不重启等于没升级，医生自报版本
+
+v0.2.23 发布当天，在真机上做了一次「从 0.2.16 升到 0.2.23」，暴露出一个比任何功能 bug 都更值得记的问题：**包换了，代码没换，而且从外面看不出来。**
+
+| 检查 | 装完之后 | 应该是 |
+| --- | --- | --- |
+| 工具数 | **9 个** | 0.2.16 起 12 个，0.2.23 是 14 个 |
+| `memory_doctor` | `unknown tool` | 0.2.16 就加了 |
+| 库 `user_version` | **1** | 0.2.23 是 4 |
+
+三条同时指向同一个结论：**实际跑的是 0.2.12**，0.2.16 和 0.2.23 都只是装到了磁盘上。之前之所以认定「装上就生效」，是因为那次实测是**首次安装**——宿主看到 bundle 列表多了一项，于是重组。升级是同一个 bundle 换内容，列表长短没变，不触发重组。
+
+**这段诊断代码没赶上 v0.2.23 的 tag。** 它是在发布之后才想明白的，而版本号已经跟着 tag 走了；再把同一份代码塞回 `v0.2.23`，会让这个版本号同时指两份不同的代码。所以单独发 v0.2.24：功能与 v0.2.23 完全一样，多出来的只有「能说出自己在跑哪一版」和下面那条安装说明。
+
+**改了三处。**
+
+1. **安装章节分成两种情形。** §2 现在写清「首次安装不用重启，升级必须重启」，并给出升级的四步（先备份库、装、完全退出重开、用 `memory_doctor` 确认）。
+2. **`memory_doctor` 第一行报版本。** 之前没有任何一个地方能回答「你现在跑的是哪一版」，只能靠数工具反推。现在恒为输出第一行：
+
+   ```
+   · 版本  运行 0.2.24 · 库 schema v4 · 库上次由 0.2.12 打开
+   ```
+
+   三段分别是：`lib/index.js` 里写死的 `BUILD_VERSION`、库的 `PRAGMA user_version`、以及 `meta` 表里上一次启动时记下的版本。后两段能证明「这次升级是真的发生过」，第一段能证明「跑的是新代码」。升级后没重启时，新代码根本不会执行，也就打不出这一行——所以它不会撒谎。
+3. **CI 盯住 `BUILD_VERSION`。** `check-docs.mjs` 多一条：这个常量必须等于 `package.json` 的 `version`。它是诊断依据，一旦过期就变成伪证，比没有更糟。
+
+新增 `probe-version.mjs`（12 项）：医生首行是否同时给出运行版本与 schema、同版本重启不覆盖 `runtime.previousVersion`、以及「把库里版本改成 0.2.12 再启动」时能否说出「库上次由 0.2.12 打开」。全套 33 个脚本（27 个探针 + 6 个场景）与 `selftest` 全绿。
+
+顺带修掉一处由此暴露的文档不一致：region 行号表全表重算（`apply()` 涨了 23 行，后面整段平移），并把 `probe-hotload` 的说明补清楚——**它证明的是「被组合进来就能挂上」，不证明「升级会触发组合」**。这个区别正是这次踩空的根因。
 
 ### v0.2.23：没有结果，就一直问下去
 
@@ -406,34 +437,6 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 还有一个自己写出来的坑：`evidence["pendingDue"]` 不存在时是 `undefined`，不是 `null`。用 `=== null` 判断会把「没有提案」读成「有提案」，于是所有该问的计划都不问了——而且块看起来完全正常。归一化之后，`pending === null` 才是一个能用的判据。
 
 `probe-plan-outcome.mjs` 28 → **52 项断言**，新增：不满两天不问、满两天再问、问的是同一条（id 不变、不多写一条）、`nudged_at` 被刷新、再下一轮又不问、`planNudgeDays=0` 只问一次、三条抢两个名额时最久没问的先问、改期提案与收尾互不打架。新增 `probe-upgrade.mjs`（42 项）专门跑老库升级。全套 32 个脚本（26 个探针 + 6 个场景）与 `selftest` 全绿。
-
-### v0.2.23 发布后补记：升级不重启等于没升级
-
-发布当天在真机上做了一次「从 0.2.16 升到 0.2.23」，暴露出一个比任何功能 bug 都更值得记的问题：**包换了，代码没换，而且从外面看不出来。**
-
-| 检查 | 装完之后 | 应该是 |
-| --- | --- | --- |
-| 工具数 | **9 个** | 0.2.16 起 12 个，0.2.23 是 14 个 |
-| `memory_doctor` | `unknown tool` | 0.2.16 就加了 |
-| 库 `user_version` | **1** | 0.2.23 是 4 |
-
-三条同时指向同一个结论：**实际跑的是 0.2.12**，0.2.16 和 0.2.23 都只是装到了磁盘上。之前之所以认定「装上就生效」，是因为那次实测是**首次安装**——宿主看到 bundle 列表多了一项，于是重组。升级是同一个 bundle 换内容，列表长短没变，不触发重组。
-
-**改了三处。**
-
-1. **安装章节分成两种情形。** §2 现在写清「首次安装不用重启，升级必须重启」，并给出升级的四步（先备份库、装、完全退出重开、用 `memory_doctor` 确认）。
-2. **`memory_doctor` 第一行报版本。** 之前没有任何一个地方能回答「你现在跑的是哪一版」，只能靠数工具反推。现在恒为输出第一行：
-
-   ```
-   · 版本  运行 0.2.23 · 库 schema v4 · 库上次由 0.2.12 打开
-   ```
-
-   三段分别是：`lib/index.js` 里写死的 `BUILD_VERSION`、库的 `PRAGMA user_version`、以及 `meta` 表里上一次启动时记下的版本。后两段能证明「这次升级是真的发生过」，第一段能证明「跑的是新代码」。升级后没重启时，新代码根本不会执行，也就打不出这一行——所以它不会撒谎。
-3. **CI 盯住 `BUILD_VERSION`。** `check-docs.mjs` 多一条：这个常量必须等于 `package.json` 的 `version`。它是诊断依据，一旦过期就变成伪证，比没有更糟。
-
-新增 `probe-version.mjs`（12 项）：医生首行是否同时给出运行版本与 schema、同版本重启不覆盖 `runtime.previousVersion`、以及「把库里版本改成 0.2.12 再启动」时能否说出「库上次由 0.2.12 打开」。全套 33 个脚本（27 个探针 + 6 个场景）与 `selftest` 全绿。
-
-顺带修掉一处由此暴露的文档不一致：region 行号表全表重算（`apply()` 涨了 23 行，后面整段平移），并把 `probe-hotload` 的说明补清楚——**它证明的是「被组合进来就能挂上」，不证明「升级会触发组合」**。这个区别正是这次踩空的根因。
 
 ### v0.2.22：期限是给没做的事的，计划过期了要问一句
 
@@ -1023,7 +1026,7 @@ cordis.patch.yml      bundle patch：把插件挂进 profile
 
 `lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 8236 行：
 
-| region | 行（v0.2.23） | 职责 |
+| region | 行（v0.2.24） | 职责 |
 | --- | --- | --- |
 | `src/engine/time.ts` | 7–557 | 时区、`day_key`、本地日界、短日期格式 |
 | `src/engine/types.ts` | 558–690 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
@@ -1049,7 +1052,7 @@ cordis.patch.yml      bundle patch：把插件挂进 profile
 | `src/index-layer.ts` | 7467–7864 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
 | `src/index.ts` | 7865–8237 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
 
-行号对应 v0.2.23，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
+行号对应 v0.2.24，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 
 `loom-e2e/` 单独跑需要 `npm install`（它复用父目录的 `node_modules`），运行方式：
 
