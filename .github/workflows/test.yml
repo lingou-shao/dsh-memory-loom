@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  selftest:
-    name: selftest · node ${{ matrix.node }}
+  test:
+    name: test · node ${{ matrix.node }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -36,7 +36,7 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: 语法检查
-        # 没有 tsc 兜底，6800 行单文件的笔误只能靠这一句
+        # 没有 tsc 兜底，8199 行单文件的笔误只能靠这一句
         run: node --check lib/index.js
 
       - name: 文档与版本一致
@@ -44,3 +44,15 @@ jobs:
 
       - name: 自检
         run: npm test
+
+      - name: 端到端探针
+        # 32 个脚本（26 探针 + 6 场景），每个独立建库、跑完自己删；harness.mjs 是脚手架不是用例。
+        # 不 fail-fast：一次把坏的全看完，比修一个跑一次快。
+        run: |
+          fail=0
+          for f in loom-e2e/*.mjs; do
+            case "$f" in */harness.mjs) continue;; esac
+            printf '\n── %s\n' "$f"
+            node "$f" || fail=1
+          done
+          exit "$fail"
