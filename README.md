@@ -1022,6 +1022,7 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
   probe-plan-outcome.mjs 计划收尾：事实为何不挂期限、到期问到有结果为止、办成/没办成各写一条事实、名额不够时轮流问、改期提案与收尾互不打架（v0.2.22/23）
   probe-upgrade.mjs    老库升级：v1 库补回五列、老数据一字不改、老计划第一次就问、怪别名与畸形输入不炸（v0.2.23）
   probe-version.mjs    运行版本哨兵：医生首行报的版本是否等于包版本、升级后能否说出「库上次由谁打开」
+  probe-linkage.mjs    关联实测：事实挂到事件的比例、一个事件平均挂几条（一跳有无东西可扩）、边表规模、字面召回覆盖到哪
   REPORT.md           上述场景的断言矩阵与结论
 cordis.patch.yml      bundle patch：把插件挂进 profile
 ```

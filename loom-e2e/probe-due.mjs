@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createLoom, mockLlm } from './harness.mjs';
+import { DAY, createLoom, mockLlm } from './harness.mjs';
 import { parseDue } from '../lib/index.js';
 
 const SESSION = 'probe-due-session';
@@ -196,7 +196,18 @@ try {
   console.log('\n[4] 改时间：先问，别直接改');
   {
     const { loom, dbPath } = boot('pending', { config: EAGER, llm: twoStep('用户打算下周去看房子', '用户打算下周一去看房子') });
-    await loom.turn(SESSION, '我下周要去看房子', '好', { gapMs: 60000 });
+    /*
+     * Push the virtual clock onto "now" before the first turn.
+     *
+     * `harness` starts every session at `Date.now() - 3 * DAY`, but the plugin
+     * decides 截止 vs 已到期 against the *real* clock. A first turn at the
+     * default 60s gap therefore anchors 「下周X」 to three days ago: on
+     * 2026-11-03 the virtual start is 10-30 (Fri), 下周一 resolves to 11-02,
+     * and a date that was written as future is already past — the probe goes
+     * red on a day when nothing changed. Skipping 3 * DAY puts the virtual
+     * start at now, so 「下周X」 is future on any run date.
+     */
+    await loom.turn(SESSION, '我下周要去看房子', '好', { gapMs: 3 * DAY });
     await loom.settle(8);
     const first = onlyPlan(dbPath);
     await loom.turn(SESSION, '改一下，我下周一去看房子', '好', { gapMs: 60000 });
@@ -220,7 +231,7 @@ try {
   console.log('\n[5] 否决之后不该再问一遍');
   {
     const { loom, dbPath } = boot('reject', { config: EAGER, llm: twoStep('用户打算下周三去体检', '用户打算十二月二十号去体检') });
-    await loom.turn(SESSION, '我下周三去体检', '好', { gapMs: 60000 });
+    await loom.turn(SESSION, '我下周三去体检', '好', { gapMs: 3 * DAY });
     await loom.settle(8);
     const first = onlyPlan(dbPath);
     await loom.turn(SESSION, '体检改到十二月二十号', '好', { gapMs: 60000 });
@@ -242,7 +253,7 @@ try {
       config: EAGER,
       llm: twoStep('用户打算去看房子', '用户打算去看房子', { second: '下周一' }),
     });
-    await loom.turn(SESSION, '我打算去看房子', '好', { gapMs: 60000 });
+    await loom.turn(SESSION, '我打算去看房子', '好', { gapMs: 3 * DAY });
     await loom.settle(8);
     const first = onlyPlan(dbPath);
     check('第一次没有期限', loom.memoryBlock(SESSION).includes('未定期限'));
