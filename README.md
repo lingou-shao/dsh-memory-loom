@@ -945,6 +945,7 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
   probe-audit3.mjs    审计：驻留预算是否守住、挂载不存在的编号会怎样
   probe-hotload.mjs   热加载：会话先存在、插件后组合时，四块 prompt 内容是否都挂上（v0.2.12）
   probe-prompt-guard.mjs  prompt 块求值失败时是否降级为空块（v0.2.13）
+  probe-degrade-notice.mjs 断库后会不会说一声、memory_doctor 在库死时是否仍不抛错（v0.2.14）
   probe-compaction.mjs   压缩前后三块 prompt 是否逐字节不变、WAL 是否被 checkpoint（v0.2.15）
   probe-preference-resident.mjs  长期偏好是否常驻、OR 匹配是否生效（v0.2.15）
   probe-diary-budget.mjs 事实撑满预算时，印象与日记会不会被整块挤掉（v0.2.15）
@@ -964,7 +965,6 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
   probe-upgrade.mjs    老库升级：v1 库补回五列、老数据一字不改、老计划第一次就问、怪别名与畸形输入不炸（v0.2.23）
   REPORT.md           上述场景的断言矩阵与结论
 cordis.patch.yml      bundle patch：把插件挂进 profile
-.env.example          环境变量示例（本插件不需要任何密钥）
 ```
 
 `lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 8199 行：

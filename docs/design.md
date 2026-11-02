@@ -499,7 +499,7 @@ schema 里有 `enabled: z.boolean().default(true)`，README 配置表也写着�
 
 **决策原意**：自我叙事的重写由一个「证据量」触发，阈值 `consolidation.narrativeEvidence = 12`。原决策里证据是加权的——一个事件算 1，一条日记算 0.3。理由是日记属于助手自己的感受，是轻量素材，比一段被观察到的事件弱。
 
-**现状**（`lib/index.js:3119`，v0.2.9 后行号）：
+**现状**（`//#region src/engine/consolidate.ts` 里的 `narrativeEvidence`）：
 
 ```js
 function narrativeEvidence(store) {
@@ -508,7 +508,7 @@ function narrativeEvidence(store) {
 }
 ```
 
-只数 `events`，日记一条都不算。触发条件是（`lib/index.js:3235`）：
+只数 `events`，日记一条都不算。触发条件在同一个 region 里（`consolidate`）：
 
 ```js
 extraction.fromModel

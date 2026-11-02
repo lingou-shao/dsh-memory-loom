@@ -116,7 +116,7 @@ cd .. && npm test           # 钩子索引自测，30 项
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| profile 里钉成 `file:C:/Users/shaoz/Desktop/....tgz` | 用本地 tarball 安装的必然结果，桌面文件一挪，下次 pnpm 重装就断 | 插件这边无法改；README 建议装完把 tgz 放固定目录，或直接用 release 直链 |
+| profile 里钉成 `file:C:/Users/you/Desktop/....tgz` | 用本地 tarball 安装的必然结果，桌面文件一挪，下次 pnpm 重装就断 | 插件这边无法改；README 建议装完把 tgz 放固定目录，或直接用 release 直链 |
 | 装好的包里 `npm test` 报 `ERR_MODULE_NOT_FOUND: @deepseek-ai/dsh-tools` | DSH 的 pnpm 不安装 peer（`+6` 而不是 `+25`），运行时靠宿主解析，裸 `node` 进程没有这条解析路径 | `test/selftest.mjs` 改为捕获该错误并打印两条复跑路径（release 附件的 `loom-e2e-*.zip` / clone 仓库），不再甩堆栈 |
 | pnpm 警告 peer，多装 `schemastery` + `cosmokit` | `schemastery` 同时写在 `dependencies` 与 `peerDependencies` | 删掉 peer 里那一份，只留 `dependencies`（DSH 环境里 peer 本来就不装，留着只会误导） |
 | 文档说「重启后旁边多一个 `diary/`」，实测没有 | `syncDiary()` 懒创建目录，库里 0 条日记时不会 mkdir | 改文档：**第一篇日记落盘后**才出现，并说明这不是失败 |
