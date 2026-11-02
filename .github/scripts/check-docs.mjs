@@ -2,10 +2,13 @@
 /**
  * 文档与代码的一致性检查，给 CI 用。
  *
- * 只查两条，都是已经真实踩过的：
+ * 只查三条，都是已经真实踩过的：
  *   1. README 里那条 Release tarball 直链的版本号 —— 换版时忘改，用户点下去 404（0.2.13 → 0.2.16 期间残留过一次）。
  *   2. 源码里注册的 memory_* 工具，README 是否都提到了 —— 加了工具忘写文档，README 的工具表就少一行，
  *      而这份表是用户判断「这插件到底能干什么」的唯一入口。
+ *   3. lib/index.js 里写死的 BUILD_VERSION —— 它是 `memory_doctor` 报「运行版本」的唯一来源。
+ *      升级后没重启时，磁盘上的包是新的、跑的还是旧代码，用户只能靠这一行分辨。它要是过期了，
+ *      这一行就从「诊断依据」变成「伪证」，比没有更糟。
  *
  * 不查的：README 里的中文数字（「十二个工具」）、行号表、章节编号。
  * 那些改起来频繁又容易假报警，人工看一眼比脚本可靠。
@@ -35,6 +38,11 @@ const registered = [...read("lib/index.js").matchAll(/name: "(memory_[a-z_]+)"/g
 const mentioned = new Set([...readme.matchAll(/\bmemory_[a-z_]+\b/gu)].map((m) => m[0]));
 const undocumented = [...new Set(registered)].filter((name) => !mentioned.has(name));
 if (undocumented.length > 0) problems.push(`README 没提到这些工具：${undocumented.join("、")}`);
+
+// ── 3. 代码自报的版本 ─────────────────────────────────────────────────
+const declared = read("lib/index.js").match(/const BUILD_VERSION = "([^"]+)"/u);
+if (declared === null) problems.push('lib/index.js 里找不到 `const BUILD_VERSION = "..."`（memory_doctor 靠它报运行版本）');
+else if (declared[1] !== version) problems.push(`lib/index.js 的 BUILD_VERSION 是 ${declared[1]}，package.json 是 ${version}——装上的包和跑起来的代码会对不上`);
 
 // ── 报告 ──────────────────────────────────────────────────────────────
 if (problems.length > 0) {

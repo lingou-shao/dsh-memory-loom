@@ -59,9 +59,11 @@
 
 DSH 用 pnpm 把包装进 profile（`~/.dsh/profiles/<profile>/node_modules`），并自动把 `dsh-memory-loom` 写进该 profile 的 bundle 列表。包内 `package.json` 声明了 `dsh.bundle.patch`，组合器据此读取 `cordis.patch.yml`，**不需要手改任何配置**；数据库默认落在 `$DSH_HOME/memory/loom.db`。
 
-**装上就生效，通常不用重启。**
+**首次安装：装上就生效，不用重启。升级：必须重启 DSH。**
 
-DSH 的插件管理器是**即时重组（live reconcile）**：pnpm 一装完，它就把 `dsh-memory-loom` 追加进 profile 的 bundle 列表、读包里的 `cordis.patch.yml`、激活这一层并调用插件的 `apply()`，然后把新的工具 schema 推给**正在运行的那个会话**。实测时间线：
+这两件事走的不是同一条路。之前这一节把它们写成一条，是错的——2026-11-02 在真机上踩到了，见下。
+
+**首次安装**走的是 DSH 的**即时重组（live reconcile）**：pnpm 一装完，它就把 `dsh-memory-loom` 追加进 profile 的 bundle 列表、读包里的 `cordis.patch.yml`、激活这一层并调用插件的 `apply()`，然后把新的工具 schema 推给**正在运行的那个会话**。实测时间线：
 
 ```
 20:05:09  dsh plugin add 跑完，profile 的 package.json 被 pnpm 改写
@@ -70,12 +72,29 @@ DSH 的插件管理器是**即时重组（live reconcile）**：pnpm 一装完�
 
 宿主主进程此前已经在跑（不需要新进程），当前会话的 id 也没变，只是收到一条 `### Updated Tool Schemas` 注入，14 个 `memory_*` 工具当场出现在工具列表里。
 
+**升级不走这条。** 升级是「同一个 bundle 换内容」，不是「出现一个新的 bundle」，宿主不会为它重组一次。实测（0.2.16 → 0.2.23，`dsh plugin add` 13.9 秒跑完、磁盘上确实换了包）：
+
+| 检查 | 结果 | 说明 |
+|---|---|---|
+| 工具数 | 还是 **9** 个 | 0.2.12 才有 9 个；0.2.16 是 12，0.2.23 是 14 |
+| `memory_doctor` | `unknown tool` | 这个工具 0.2.16 才加 |
+| 库 `user_version` | **1** | 0.2.23 是 4 |
+
+三条同时指向同一件事：**磁盘上装的是新版，进程里跑的是启动那一刻的旧代码。** 所以升级之后不重启，看到的是「装上了」，实际是「没生效」——`git`、文件时间、`package.json` 版本号全都对，唯独跑的东西没变。
+
+**升级的正确顺序**：
+
+1. **先备份库**：把 `%USERPROFILE%\.dsh\memory\loom.db` 复制一份。第一次加载新代码会 `ALTER TABLE` 加列（0.2.23 加三列），备份是为了万一出问题有退路。
+2. 装新版（粘新链接 / `dsh plugin add` / `pnpm install`，同平常）。
+3. **把 DSH 完全退出再打开**（不是新开会话，是重启进程）。
+4. 用 `memory_doctor` 第一行确认：应该显示 `运行 0.2.23 · 库 schema v4`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版。
+
 通常几秒内就能确认两件事：
 
-1. 工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 14 个 `memory_*` 工具。**不必新开会话**——当前会话会被刷新。若迟迟不出现，再重启 DSH（旧版宿主可能不支持热加载），或先排除下面「安装被拒绝」那种情况。
+1. 工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 14 个 `memory_*` 工具。**首次安装**不必新开会话，当前会话会被刷新；**升级必须重启 DSH**，重启之前那 14 个不会变（见上）。若迟迟不出现，先排除下面「安装被拒绝」那种情况。
 2. `%USERPROFILE%\.dsh\memory\loom.db`（Linux/macOS 是 `~/.dsh/memory/loom.db`）被创建。**`diary/` 目录不会跟着出现**——它是懒创建的，要等第一条日记落盘才建；刚装好看不到那个目录是正常的，不是没生效。
 
-> 注意区分：热加载只负责**挂载工具**。真正开始积累记忆（写事件、写日记）要等**整合**触发——单会话累计 2 万 token，或空闲 5 分钟。装完立刻问「你还记得什么」，答案当然是空的。
+> 注意区分两件事：「装上了」只意味着**工具挂上了**。真正开始积累记忆（写事件、写日记）要等**整合**触发——单会话累计 2 万 token，或空闲 5 分钟。装完立刻问「你还记得什么」，答案当然是空的。
 
 如果安装被拒绝并提示 `incompatible-version`，那是插件声明的 DSH 版本范围与当前 DSH 对不上。本包声明的是 `engines.dsh: ">=0.2.1-rc.2 <0.3.0"`，DSH 的预检优先读这个字段，读到就不再逐个比对 `peerDependencies`，所以报错只会有一项（`engines.dsh`），比一长串 peer 列表好定位。上限定在 `<0.3.0` 是**故意的**：插件用到 `defineTool`、`systemPrompt.section`、session 事件这些宿主内部面，0.3 改语义时它不会自动知道——装不上比装上了坏掉好。提 issue 时请附上你的 DSH 版本。
 
@@ -201,7 +220,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | `memory_expand`   | `ref`*, `offset`                                                    | 按编号取正文：`E` 事件 / `F` 事实上下文 / `D` 整理版 / `T` 最近未整理。超预算自动分页并给出续读指令           |
 | `memory_pack`     | `title`*, `text`*, `ref`                                            | 把整理好的叙事单独存为 `D` 并挂到钩子上，之后取回优先返回整理版。`T` 拒绝挂载（滚动区间挂不住固定正文）                 |
 | `memory_index`    | `action`*, `query`, `ref`                                           | `view` 常驻钩子 / `search` 全量（含冷区）/ `promote` 置顶 / `rebuild` 重建 / `gc` 清孤儿正文 |
-| `memory_doctor`   | —                                                                   | 只读体检：库连接、库文件与 WAL、`journal_mode`/`synchronous`、`quick_check`、六张表行数、最近一次召回时间、prompt 三块连续失败次数。库打不开时报告本身仍然可用（v0.2.14） |
+| `memory_doctor`   | —                                                                   | 只读体检：**第一行报运行版本与库 schema 版本**（升级后没重启时，这一行是唯一能分辨的依据）、库连接、库文件与 WAL、`journal_mode`/`synchronous`、`quick_check`、六张表行数、最近一次召回时间、prompt 三块连续失败次数。库打不开时报告本身仍然可用（v0.2.14） |
 | `memory_handoff`  | —                                                                   | 生成交接卡：我是谁（身份 / 语气 / 价值观）、我们的关系、不能破的规矩、未完成、下一步。全部**原文引用**，不改人设也不写记忆；「下一步」刻意留空给人填（v0.2.15） |
 | `memory_episodes` | `query`, `days`, `limit`                                            | 列事件块，按时间倒序：时间 / 类型 / `E` 编号 / 关联事实数 / 标题 / 摘要，可按关键词与天数过滤。用来把同一件事、同一个项目的几段自己归拢——插件不建项目维度，也不读工作目录，能归拢的前提是块**可被枚举**（v0.2.16） |
 
@@ -387,6 +406,34 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 还有一个自己写出来的坑：`evidence["pendingDue"]` 不存在时是 `undefined`，不是 `null`。用 `=== null` 判断会把「没有提案」读成「有提案」，于是所有该问的计划都不问了——而且块看起来完全正常。归一化之后，`pending === null` 才是一个能用的判据。
 
 `probe-plan-outcome.mjs` 28 → **52 项断言**，新增：不满两天不问、满两天再问、问的是同一条（id 不变、不多写一条）、`nudged_at` 被刷新、再下一轮又不问、`planNudgeDays=0` 只问一次、三条抢两个名额时最久没问的先问、改期提案与收尾互不打架。新增 `probe-upgrade.mjs`（42 项）专门跑老库升级。全套 32 个脚本（26 个探针 + 6 个场景）与 `selftest` 全绿。
+
+### v0.2.23 发布后补记：升级不重启等于没升级
+
+发布当天在真机上做了一次「从 0.2.16 升到 0.2.23」，暴露出一个比任何功能 bug 都更值得记的问题：**包换了，代码没换，而且从外面看不出来。**
+
+| 检查 | 装完之后 | 应该是 |
+| --- | --- | --- |
+| 工具数 | **9 个** | 0.2.16 起 12 个，0.2.23 是 14 个 |
+| `memory_doctor` | `unknown tool` | 0.2.16 就加了 |
+| 库 `user_version` | **1** | 0.2.23 是 4 |
+
+三条同时指向同一个结论：**实际跑的是 0.2.12**，0.2.16 和 0.2.23 都只是装到了磁盘上。之前之所以认定「装上就生效」，是因为那次实测是**首次安装**——宿主看到 bundle 列表多了一项，于是重组。升级是同一个 bundle 换内容，列表长短没变，不触发重组。
+
+**改了三处。**
+
+1. **安装章节分成两种情形。** §2 现在写清「首次安装不用重启，升级必须重启」，并给出升级的四步（先备份库、装、完全退出重开、用 `memory_doctor` 确认）。
+2. **`memory_doctor` 第一行报版本。** 之前没有任何一个地方能回答「你现在跑的是哪一版」，只能靠数工具反推。现在恒为输出第一行：
+
+   ```
+   · 版本  运行 0.2.23 · 库 schema v4 · 库上次由 0.2.12 打开
+   ```
+
+   三段分别是：`lib/index.js` 里写死的 `BUILD_VERSION`、库的 `PRAGMA user_version`、以及 `meta` 表里上一次启动时记下的版本。后两段能证明「这次升级是真的发生过」，第一段能证明「跑的是新代码」。升级后没重启时，新代码根本不会执行，也就打不出这一行——所以它不会撒谎。
+3. **CI 盯住 `BUILD_VERSION`。** `check-docs.mjs` 多一条：这个常量必须等于 `package.json` 的 `version`。它是诊断依据，一旦过期就变成伪证，比没有更糟。
+
+新增 `probe-version.mjs`（12 项）：医生首行是否同时给出运行版本与 schema、同版本重启不覆盖 `runtime.previousVersion`、以及「把库里版本改成 0.2.12 再启动」时能否说出「库上次由 0.2.12 打开」。全套 33 个脚本（27 个探针 + 6 个场景）与 `selftest` 全绿。
+
+顺带修掉一处由此暴露的文档不一致：region 行号表全表重算（`apply()` 涨了 23 行，后面整段平移），并把 `probe-hotload` 的说明补清楚——**它证明的是「被组合进来就能挂上」，不证明「升级会触发组合」**。这个区别正是这次踩空的根因。
 
 ### v0.2.22：期限是给没做的事的，计划过期了要问一句
 
@@ -651,6 +698,12 @@ v0.2.13 把 prompt 求值失败降级成空块，对话能继续了，但**没�
 1. **§2 安装章节更正为「装上就生效，通常不用重启」。** 写清 DSH 的机制叫即时重组（live reconcile）：装完 → 追进 bundle 列表 → 读 `cordis.patch.yml` → 调 `apply()` → 把新工具 schema 推给正在运行的会话（表现为一条 `### Updated Tool Schemas` 注入）。重启只作为「迟迟不出现」时的兜底手段。原来的写法把门槛写高了。
 2. **「新开一个会话才看得到工具」也一并改掉。** 实测当前会话当场就被刷新了，不必新开。
 3. **补一句区分**：热加载只管挂载工具，记忆要等**整合**（2 万 token 或空闲 5 分钟）才开始积累。否则刚装完问「你记得什么」得到空答案，会被误当成没装上。
+
+> **补充（v0.2.23 发布后，2026-11-02）：上面这条结论只对「首次安装」成立，当时把它推广到「升级」是错的。**
+>
+> 那次实测是往一个**还没有这个插件**的 profile 里装，宿主看到 bundle 列表多了一项，于是重组。升级是「同一个 bundle 换内容」，列表长短没变，不会触发重组——装到 0.2.23，实际跑的还是 0.2.12（工具 9 个、`memory_doctor` unknown、`user_version` 1），三条证据齐全。
+>
+> 所以正确的说法是：**首次安装不用重启，升级必须重启。** 现在 `memory_doctor` 第一行会打印 `运行 <版本> · 库 schema v<版本>`，让「装的是哪版 / 跑的是哪版」不再需要靠数工具反推。
 4. **`incompatible-version` 那段改准。** 之前还写着「声明已放宽到 `>=0.2.1-rc.2 <2`」，那是 v0.2.10 的说法；v0.2.11 已经改成 `engines.dsh: ">=0.2.1-rc.2 <0.3.0"` 并收窄了 peer。现在按实际声明写，并说明预检读到 `engines.dsh` 就会短路，所以报错只有一项。
 
 **代码部分**：顺着「装完即生效」这个事实往下查，发现热加载漏了一半。
@@ -688,7 +741,7 @@ v0.2.13 把 prompt 求值失败降级成空块，对话能继续了，但**没�
 1. **peerDependencies 收窄成「只声明真正 import 的」。** 原来声明了 6 个 `@deepseek-ai/*`，其中 5 个（`dsh-agent` / `dsh-llm` / `dsh-session` / `dsh-system-prompt` / `cordis`）代码里根本没有 import；只有 `dsh-tools`（`defineTool`）和 `schemastery`（schema）是真依赖。多声明的部分会被 DSH 的兼容性预检逐个比对运行时版本，**不满足就直接拒绝安装**。
 2. **版本范围放开上界。** 原来的 `^0.2.1-rc.2` 等价于 `>=0.2.1-rc.2 <0.3.0`——DSH 一旦发布 0.3.0，所有人重装这个插件都会被判 `incompatible-version`。现在写成 `>=0.2.1-rc.2 <2`，与生态里其它插件的写法一致（对照 `@dsh-external/dsh-blender-plugin` 用的是 `>=0.0.1-rc <2`）。
 3. **补 `repository` / `bugs` / `homepage`。** 插件卡片和 issue 入口都靠它，之前是空的。
-4. **§2 安装章节重写。** 写清三种可填的地址、本地路径必须是绝对路径、以及装完怎么确认真的挂上了。〔当时写了「**装完要重启 DSH**」，v0.2.12 已更正：实测装上即生效，不需要重启〕
+4. **§2 安装章节重写。** 写清三种可填的地址、本地路径必须是绝对路径、以及装完怎么确认真的挂上了。〔当时写了「**装完要重启 DSH**」，v0.2.12 更正为「首次安装装上即生效」，v0.2.23 再更正为「升级必须重启」——见 v0.2.12 一节末尾的补充〕
 5. **`loom-e2e/REPORT.md` 随包发布**（脚手架脚本仍不进包）。装完之后想核对「它到底测过什么」，不必再跑回 GitHub 找。
 
 依赖树本身没有变小——`@deepseek-ai/dsh-tools` 自带 `dsh-agent` / `dsh-llm` / `dsh-session` 等传递依赖，装一次约 17 MB / 25 个包，这一点无法绕开（除非不用 `defineTool`）。`defineTool` 是纯函数（校验参数后返回普通对象，没有跨实例状态），所以它加载的副本与宿主不是同一份也不影响运行。
@@ -919,7 +972,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 
 ## 10. 目录
 
-本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（8199 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
+本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（8236 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
 
 ```
 lib/
@@ -943,7 +996,7 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
   probe-audit.mjs     分页边界（emoji/越界/无损拼接）、脱敏性能、非本机路径、并发
   probe-audit2.mjs    审计：配置项是否真生效、检索转义、本地化（v0.2.12 时期的一次外部审计）
   probe-audit3.mjs    审计：驻留预算是否守住、挂载不存在的编号会怎样
-  probe-hotload.mjs   热加载：会话先存在、插件后组合时，四块 prompt 内容是否都挂上（v0.2.12）
+  probe-hotload.mjs   热加载：会话先存在、插件后组合时，四块 prompt 内容是否都挂上（v0.2.12）。**注意它证明的是「被组合进来就能挂上」，不证明「升级会触发组合」——升级不重启不生效，见 §2**
   probe-prompt-guard.mjs  prompt 块求值失败时是否降级为空块（v0.2.13）
   probe-degrade-notice.mjs 断库后会不会说一声、memory_doctor 在库死时是否仍不抛错（v0.2.14）
   probe-compaction.mjs   压缩前后三块 prompt 是否逐字节不变、WAL 是否被 checkpoint（v0.2.15）
@@ -963,37 +1016,38 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
   probe-due.mjs       期限：固定日历上 30 多种说法怎么解析、过去与习惯为何不记、语焉不详的是否不记、改时间会不会先问（v0.2.20/21）
   probe-plan-outcome.mjs 计划收尾：事实为何不挂期限、到期问到有结果为止、办成/没办成各写一条事实、名额不够时轮流问、改期提案与收尾互不打架（v0.2.22/23）
   probe-upgrade.mjs    老库升级：v1 库补回五列、老数据一字不改、老计划第一次就问、怪别名与畸形输入不炸（v0.2.23）
+  probe-version.mjs    运行版本哨兵：医生首行报的版本是否等于包版本、升级后能否说出「库上次由谁打开」
   REPORT.md           上述场景的断言矩阵与结论
 cordis.patch.yml      bundle patch：把插件挂进 profile
 ```
 
-`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 8199 行：
+`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 8236 行：
 
 | region | 行（v0.2.23） | 职责 |
 | --- | --- | --- |
 | `src/engine/time.ts` | 7–557 | 时区、`day_key`、本地日界、短日期格式 |
 | `src/engine/types.ts` | 558–690 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
 | `src/config.ts` | 691–883 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
-| `src/engine/db.ts` | 884–1271 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
-| `src/engine/text.ts` | 1272–1613 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
-| `src/engine/store.ts` | 1614–2502 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
-| `src/engine/decay.ts` | 2503–2572 | 衰减与时效权重 |
-| `src/engine/domain.ts` | 2573–2878 | 10 个固定域的判定与中英标签 |
-| `src/engine/salience.ts` | 2879–3070 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
-| `src/engine/segment.ts` | 3071–3293 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
-| `src/engine/consolidate.ts` | 3294–4117 | 整合：抽取、事件标题与摘要、写事实与事件、叙事证据 |
-| `src/engine/roles.ts` | 4118–4312 | 主人 / 朋友 / 路人权限梯度与可见性 |
-| `src/engine/maintenance.ts` | 4313–4460 | 每轮维护：衰减、去重、trace 清理、路人到期 |
-| `src/engine/backup.ts` | 4461–4519 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
-| `src/engine/render.ts` | 4520–4896 | 记忆块与分页渲染（`SECTION`、预算） |
-| `src/engine/retrieval.ts` | 4897–5479 | 召回、排序融合、冲突检测、分页切片 |
-| `src/engine/persona.ts` | 5480–5656 | 人设卡五区、自我叙述、对他的印象 |
-| `src/engine/diary-mirror.ts` | 5657–5716 | 日记 Markdown 镜像（v0.2.9） |
-| `src/engine/index.ts` | 5717–6407 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
-| `src/host.ts` | 6408–6518 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
-| `src/tools.ts` | 6519–7443 | 14 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单 |
-| `src/index-layer.ts` | 7444–7841 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
-| `src/index.ts` | 7842–8199 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
+| `src/engine/db.ts` | 884–1281 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
+| `src/engine/text.ts` | 1282–1623 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
+| `src/engine/store.ts` | 1624–2512 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
+| `src/engine/decay.ts` | 2513–2582 | 衰减与时效权重 |
+| `src/engine/domain.ts` | 2583–2888 | 10 个固定域的判定与中英标签 |
+| `src/engine/salience.ts` | 2889–3080 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
+| `src/engine/segment.ts` | 3081–3303 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
+| `src/engine/consolidate.ts` | 3304–4127 | 整合：抽取、事件标题与摘要、写事实与事件、叙事证据 |
+| `src/engine/roles.ts` | 4128–4322 | 主人 / 朋友 / 路人权限梯度与可见性 |
+| `src/engine/maintenance.ts` | 4323–4470 | 每轮维护：衰减、去重、trace 清理、路人到期 |
+| `src/engine/backup.ts` | 4471–4529 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
+| `src/engine/render.ts` | 4530–4906 | 记忆块与分页渲染（`SECTION`、预算） |
+| `src/engine/retrieval.ts` | 4907–5489 | 召回、排序融合、冲突检测、分页切片 |
+| `src/engine/persona.ts` | 5490–5666 | 人设卡五区、自我叙述、对他的印象 |
+| `src/engine/diary-mirror.ts` | 5667–5726 | 日记 Markdown 镜像（v0.2.9） |
+| `src/engine/index.ts` | 5727–6417 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
+| `src/host.ts` | 6418–6528 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
+| `src/tools.ts` | 6529–7466 | 14 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单 |
+| `src/index-layer.ts` | 7467–7864 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
+| `src/index.ts` | 7865–8237 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
 
 行号对应 v0.2.23，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 

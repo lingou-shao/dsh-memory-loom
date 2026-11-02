@@ -7,6 +7,11 @@
  * fires while nobody is listening. Question: do the three per-agent blocks
  * (persona / hook index / memory) still get attached to that live session?
  *
+ * 边界（2026-11-02 补）：这个探针回答的是「**被组合进来之后**挂不挂得上」，
+ * 它不回答「升级会不会触发组合」。后者由宿主决定，探针管不着——真机上
+ * 0.2.16 → 0.2.23 升级后 `apply()` 根本没被再调一次，跑的还是 0.2.12。
+ * 所以这里全绿不等于「升级不用重启」。见 README §2 与 design.md §27。
+ *
  * Run: node loom-e2e/probe-hotload.mjs
  */
 
