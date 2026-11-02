@@ -37,7 +37,7 @@ node probe-episodes.mjs     # 事件块：能否列出、标题是否带对象�
 node probe-model-title.mjs  # 模型路径：假 llm 服务喂回 JSON，看标题是否真被采用，16 项
 node probe-recall-relax.mjs # 宽松召回：严格 AND 漏掉的能不能补回、守卫挡不挡噪声，12 项
 node probe-aliases.mjs      # 检索别名：换说法能否召回、严格匹配够不够、换话题会不会渗漏，6 组对照×3 臂
-node probe-alias-prompt.mjs # 别名走模型那条路：提示词要不要、落库没有、坏别名挡不挡、关掉是否干净，13 项
+node probe-alias-prompt.mjs # 别名走模型那条路：提示词要不要、落库没有、坏别名挡不挡、关掉是否干净，17 项
 node probe-plans.mjs        # 计划通道：不检索也在块里、到期怎么标、重复渲染、关掉是否干净，16 项
 node probe-block-zones.mjs  # 记忆块分区：事实吃满预算时偏好还在不在、三区顺序、硬顶，9 项
 node probe-conflict-scan.mjs # 矛盾自查：数字/否定能不能抓、无关的会否被牵连、块与报告说什么，9 项

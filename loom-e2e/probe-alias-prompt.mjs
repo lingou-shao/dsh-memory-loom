@@ -34,7 +34,11 @@ const GOOD = JSON.stringify({
   facts: [{ text: FACT_TEXT, kind: 'fact', ttl: null, confidence: 0.9, aliases: ['辞职', '没告诉爸妈', '瞒着我妈'] }]
 });
 
-/** 四个别名里两个该被丢：泛词「工作」、超过 6 字的整句。 */
+/**
+ * 五个别名里三个该被丢：泛词「工作」、超过 6 字的整句、光秃秃的问句壳
+ * 「什么时候」；「身体怎么样」反过来必须留下 —— 它带着对象，是提示词现在
+ * 要的那种问法，挡壳的规则不能顺手把它也挡掉。
+ */
 const DIRTY = JSON.stringify({
   title: '辞职没敢跟家里说',
   summary: '用户辞了职，一直瞒着父母。',
@@ -48,7 +52,7 @@ const DIRTY = JSON.stringify({
       kind: 'fact',
       ttl: null,
       confidence: 0.9,
-      aliases: ['工作', '这是一句明显超过六个字的长别名', '没告诉爸妈', '没告诉爸妈']
+      aliases: ['工作', '这是一句明显超过六个字的长别名', '什么时候', '身体怎么样', '没告诉爸妈', '没告诉爸妈']
     }
   ]
 });
@@ -83,6 +87,12 @@ try {
   check('提示词给了条数上限', /2–3 个/u.test(prompt), '要求 2–3 个');
   check('提示词挡了泛词', /「工作」「心情」/u.test(prompt), '明确点出不要写泛词');
   check('提示词给了 JSON 结构', /"aliases":\[\]/u.test(prompt), 'JSON 模板里有 aliases');
+  check('提示词要的是「问法」，不是同义说法', /会用什么话问起/u.test(prompt), '明确问「他会用什么话问起这件事」');
+  check(
+    '提示词给了正反例对照',
+    /身体怎么样/u.test(prompt) && /健康检查/u.test(prompt),
+    '「身体怎么样」是正例，「健康检查」被点名为反例',
+  );
   check('模型路径真的被调用', extractCall !== undefined, `模型被调用 ${good.llm.calls.length} 次`);
 
   const byAlias = await good.loom.call('memory_search', { query: '没告诉爸妈' }, 's-alias');
@@ -107,6 +117,10 @@ try {
   await dirty.loom.settle(8);
   const generic = await dirty.loom.call('memory_search', { query: '工作上的事' }, 's-alias');
   check('泛词别名被丢弃', !generic.includes('辞职'), generic.split('\n')[0]);
+  const shell = await dirty.loom.call('memory_search', { query: '什么时候' }, 's-alias');
+  check('光秃秃的问句壳被丢弃', !shell.includes('辞职'), shell.split('\n')[0]);
+  const withObject = await dirty.loom.call('memory_search', { query: '身体怎么样' }, 's-alias');
+  check('带对象的问法留得住、也搜得到', withObject.includes('辞职'), withObject.split('\n')[0]);
   const clean = await dirty.loom.call('memory_search', { query: '没告诉爸妈' }, 's-alias');
   check('干净的别名仍生效', clean.includes('辞职'), clean.split('\n')[0]);
   const doctor = await dirty.loom.call('memory_doctor', {}, 's-alias');

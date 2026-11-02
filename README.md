@@ -582,7 +582,7 @@ v0.2.20 把期限做成了区间，但**认得的说法太少**：用户真正�
 1. **整合提示词多要 `aliases`。** 每条事实 2–3 个口语说法，每段经历 2–3 个「这件事」的别的叫法。提示词里明确写：口语一点、允许换说法、带上具体对象名、每个 ≤6 字，**不要**写「工作」「心情」这类泛词，也不要照抄原句。
 2. **别名混进已有的 `tokens` 列，不加 FTS 列。** `facts_fts` 是 external-content 表，加一列就要 DROP/重建并重刷全库；而 `tokens` 本来就是「把原文切成二字组」的索引列，把别名切进去即可，权重、触发器、查询表达式一个都不用动。查询端**一个字都没改**。
 3. **放宽那一步的守卫，把别名算进「这一行能被哪些词找到」。** 这是整件事的关键。改动前（严格 AND 加别名）实测 0/6：严格匹配要求这句话的**每个**二字组都出现，三个短别名盖不住一句人话。守卫从 `containment(query, text)` 改成 `containment(query, text + aliases)` 之后，同一批题变成 6/6。
-4. **别名要清洗，不能照收。** 只收 2–3 个、单个 ≤6 字（拉丁 ≤12）、去掉泛词与纯数字、去重、过一遍密钥检测。泛词是这里唯一的真风险：一个「工作」别名会把这条记忆变成所有无关对话的磁铁。
+4. **别名要清洗，不能照收。** 只收 2–3 个、单个 ≤6 字（拉丁 ≤12）、去掉泛词与纯数字、去重、过一遍密钥检测。泛词是这里唯一的真风险：一个「工作」别名会把这条记忆变成所有无关对话的磁铁。光秃秃的问句壳（「什么时候」「怎么样」）和泛词同类，一起挡掉。
 5. **`memory_write` 也能带 `aliases`。** 用户说「记住这个」的那条路，同样值得带上别的说法。
 6. **`memory_doctor` 报别名覆盖率**（`检索别名 12/30 条带别名`）。旧库不会自动回填——别名是在写入那一刻产生的，这一点必须看得见，而不是假装功能已经生效。
 7. **配置 `consolidation.aliasCount`**：默认 3，`0` 关掉（提示词不再出现该字段）。
@@ -594,6 +594,8 @@ v0.2.20 把期限做成了区间，但**认得的说法太少**：用户真正�
 - **prompt 的常驻开销不变。** 别名只进索引，不进记忆块；一轮 2300 token 的常驻预算没有变化。
 - **换话题不渗漏。** 实测 8 个无关问题（含两个刻意带泛词的）在三条臂下都是 0 泄漏、块大小一致（8 条）。换话题时块里仍然是「最近 8 条事实」——那是冷启动兜底，与别名无关，也不是这一版引入的。
 
+**后来补的一次：别名要的是「他会怎么问」，不是「换个叫法」。** 原提示词说「用户下次可能拿来检索它的说法」，模型照字面理解成了同义替换——在真实库里数了 11 条别名，**含疑问词的是 0 条**，全是「健康检查」式的另一个名字。而同义替换恰恰是最没用的那种：「体检」的另一半用户在检索时本来就会想到，他想不起的才是「身体怎么样」。提示词改成点名要问法，并给出正反例（`身体怎么样` 对，`健康检查` 错）；同时把「什么时候」「怎么样」这类只剩疑问词的壳加进泛词表——它们挂在一条事实上，会让这条记忆对每个问题都算命中。
+
 新增两支探针。`probe-aliases`（6 条记忆 × 3 种问法 × 3 条臂 + 8 个换话题 + 清洗）：A 无别名 / B 别名+放宽 / C 别名+严格。C 是必须的——没有它，B 的胜利会被误记成「别名让 AND 变容易」，而真正起作用的是第 3 条的守卫改动。实测：
 
 | 问法 | A 无别名 | B 别名+放宽 | C 别名+仅严格 |
@@ -602,7 +604,7 @@ v0.2.20 把期限做成了区间，但**认得的说法太少**：用户真正�
 | 换说法（别名覆盖） | 0/6 | 6/6 | 0/6 |
 | 第四种说法（没覆盖） | 0/6 | 0/6 | 0/6 |
 
-`probe-alias-prompt`（13 项）走假 `llm` 服务，验证提示词确实要了 `aliases`、`aliasCount=0` 时提示词干净且别名不生效、脏别名被丢弃、`memory_doctor` 报覆盖率。
+`probe-alias-prompt` 当时 13 项，走假 `llm` 服务，验证提示词确实要了 `aliases`、`aliasCount=0` 时提示词干净且别名不生效、脏别名被丢弃、`memory_doctor` 报覆盖率（改成问法后扩到 17 项，加了四项：提示词点名要问法、正反例对照、问句壳被挡、带对象的问法留得住）。
 
 **顺带修掉一个真 bug。** `toEngineConfig` 是一份**显式字段白名单**，`aliasCount` 没写进去，于是传到引擎是 `undefined`，`extractPrompt` 的默认参数把 `0` 补上——提示词里悄悄没有这个字段，而配置项看起来「生效了」。探针第一版就是在这里假绿的：假模型照样返回了别名，因为假模型不看提示词。这类「白名单漏一个字段」的错不会报错，只会让开关失效。
 
@@ -977,7 +979,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 
 ## 10. 目录
 
-本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（8236 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
+本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（8262 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
 
 ```
 lib/
@@ -1027,33 +1029,33 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
 cordis.patch.yml      bundle patch：把插件挂进 profile
 ```
 
-`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 8236 行：
+`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 8262 行：
 
-| region | 行（v0.2.24） | 职责 |
+| region | 行（工作树，未发布） | 职责 |
 | --- | --- | --- |
 | `src/engine/time.ts` | 7–557 | 时区、`day_key`、本地日界、短日期格式 |
 | `src/engine/types.ts` | 558–690 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
 | `src/config.ts` | 691–883 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
 | `src/engine/db.ts` | 884–1281 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
-| `src/engine/text.ts` | 1282–1623 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
-| `src/engine/store.ts` | 1624–2512 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
-| `src/engine/decay.ts` | 2513–2582 | 衰减与时效权重 |
-| `src/engine/domain.ts` | 2583–2888 | 10 个固定域的判定与中英标签 |
-| `src/engine/salience.ts` | 2889–3080 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
-| `src/engine/segment.ts` | 3081–3303 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
-| `src/engine/consolidate.ts` | 3304–4127 | 整合：抽取、事件标题与摘要、写事实与事件、叙事证据 |
-| `src/engine/roles.ts` | 4128–4322 | 主人 / 朋友 / 路人权限梯度与可见性 |
-| `src/engine/maintenance.ts` | 4323–4470 | 每轮维护：衰减、去重、trace 清理、路人到期 |
-| `src/engine/backup.ts` | 4471–4529 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
-| `src/engine/render.ts` | 4530–4906 | 记忆块与分页渲染（`SECTION`、预算） |
-| `src/engine/retrieval.ts` | 4907–5489 | 召回、排序融合、冲突检测、分页切片 |
-| `src/engine/persona.ts` | 5490–5666 | 人设卡五区、自我叙述、对他的印象 |
-| `src/engine/diary-mirror.ts` | 5667–5726 | 日记 Markdown 镜像（v0.2.9） |
-| `src/engine/index.ts` | 5727–6417 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
-| `src/host.ts` | 6418–6528 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
-| `src/tools.ts` | 6529–7466 | 14 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单 |
-| `src/index-layer.ts` | 7467–7864 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
-| `src/index.ts` | 7865–8237 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
+| `src/engine/text.ts` | 1282–1640 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
+| `src/engine/store.ts` | 1641–2529 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
+| `src/engine/decay.ts` | 2530–2599 | 衰减与时效权重 |
+| `src/engine/domain.ts` | 2600–2905 | 10 个固定域的判定与中英标签 |
+| `src/engine/salience.ts` | 2906–3097 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
+| `src/engine/segment.ts` | 3098–3320 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
+| `src/engine/consolidate.ts` | 3321–4152 | 整合：抽取、事件标题与摘要、写事实与事件、叙事证据 |
+| `src/engine/roles.ts` | 4153–4347 | 主人 / 朋友 / 路人权限梯度与可见性 |
+| `src/engine/maintenance.ts` | 4348–4495 | 每轮维护：衰减、去重、trace 清理、路人到期 |
+| `src/engine/backup.ts` | 4496–4554 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
+| `src/engine/render.ts` | 4555–4931 | 记忆块与分页渲染（`SECTION`、预算） |
+| `src/engine/retrieval.ts` | 4932–5514 | 召回、排序融合、冲突检测、分页切片 |
+| `src/engine/persona.ts` | 5515–5691 | 人设卡五区、自我叙述、对他的印象 |
+| `src/engine/diary-mirror.ts` | 5692–5751 | 日记 Markdown 镜像（v0.2.9） |
+| `src/engine/index.ts` | 5752–6442 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
+| `src/host.ts` | 6443–6553 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
+| `src/tools.ts` | 6554–7491 | 14 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单 |
+| `src/index-layer.ts` | 7492–7889 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
+| `src/index.ts` | 7890–8262 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
 
 行号对应 v0.2.24，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 
