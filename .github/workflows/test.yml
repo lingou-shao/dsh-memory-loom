@@ -1,0 +1,46 @@
+name: test
+
+# 这个插件的回归故障长什么样：不是崩溃，是「文档写着有、代码在跑、产物是空的，而且不报错」。
+# lib/index.js 没有构建步骤，改完就是生效版本，所以每次改都得跑一遍。
+# 手跑会漏 —— 一天四个版本的时候一定会漏，这就是这个 workflow 唯一存在的理由。
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    name: selftest · node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 是 package.json engines 的下限，24 是当前版本，两头都钉住
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          # 仓库里没有 lockfile，setup-node 的 npm 缓存会因找不到 lock 直接失败，所以不启用
+
+      - name: 安装依赖
+        # peerDependencies 里的 @deepseek-ai/dsh-tools 由 npm 7+ 自动带上；
+        # 干净机器上这一句是唯一需要联网的步骤，约 20 秒
+        run: npm install --no-audit --no-fund
+
+      - name: 语法检查
+        # 没有 tsc 兜底，6800 行单文件的笔误只能靠这一句
+        run: node --check lib/index.js
+
+      - name: 文档与版本一致
+        run: node .github/scripts/check-docs.mjs
+
+      - name: 自检
+        run: npm test
