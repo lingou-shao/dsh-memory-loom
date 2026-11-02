@@ -164,8 +164,8 @@ try {
      * 回头问一件他早就答过的事。行上那句 `memory_resolve(id=N)` 就是
      * 补这个口子 —— 也是模型唯一能拿到 id 的地方。
      */
-    check('未到期的计划行给出了收尾入口', /memory_resolve\(id=\d+, done=true\)/u.test(dated), dated);
-    check('未定期限的计划也一样（它同样会提前做完）', /memory_resolve\(id=\d+, done=true\)/u.test(open), open);
+    check('未到期的计划行给出了收尾入口', /memory_resolve\(id=\d+, outcome=done\|cancelled\)/u.test(dated), dated);
+    check('未定期限的计划也一样（它同样会提前做完）', /memory_resolve\(id=\d+, outcome=done\|cancelled\)/u.test(open), open);
     check('未定期限的行不带「到期后」', !open.includes('到期后'), open);
     check('没日期的行不再跟一个「· 截止」标签', !open.includes('· 截止'), open);
 
@@ -177,7 +177,7 @@ try {
       `${String(datedId)} / ${String(openId)}`,
     );
 
-    const said = String(await loom.call('memory_resolve', { id: datedId, done: true, note: '提前去的' }, SESSION));
+    const said = String(await loom.call('memory_resolve', { id: datedId, outcome: 'done', note: '提前去的' }, SESSION));
     check('到期前收尾被接受', /办成了/u.test(said), said);
 
     const after = loom.memoryBlock(SESSION);
@@ -193,7 +193,7 @@ try {
       !after.split('\n').some((row) => row.includes('· 截止] 下周五去体检 —— 已办成')),
     );
 
-    const again = String(await loom.call('memory_resolve', { id: datedId, done: true }, SESSION));
+    const again = String(await loom.call('memory_resolve', { id: datedId, outcome: 'done' }, SESSION));
     check('重复收尾被挡下，不再写第二条事实', /之前已经收过尾/u.test(again), again);
     loom.dispose();
   }
@@ -229,7 +229,7 @@ try {
     check('还没到再问的时候，所以没有催问句', !line.includes('后来成了吗'), line);
     check(
       '但它仍然带着编号',
-      new RegExp(`memory_resolve\\(id=${String(id)}, done=true\\)`, 'u').test(line),
+      new RegExp(`memory_resolve\\(id=${String(id)}, outcome=done\\|cancelled\\)`, 'u').test(line),
       line,
     );
     check('同一行里只出现一次收尾调用', (line.match(/memory_resolve\(/gu) ?? []).length === 1, line);

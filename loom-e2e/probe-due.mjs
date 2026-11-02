@@ -233,7 +233,7 @@ try {
     check('待确认消失', !after.includes('时间待确认'));
     check(
       '改期落定之后，收尾入口回来了',
-      /memory_resolve\(id=\d+, done=true\)/u.test(after),
+      /memory_resolve\(id=\d+, outcome=done\|cancelled\)/u.test(after),
       after.split('\n').find((row) => row.includes('房子')) ?? '(无)',
     );
     loom.dispose();

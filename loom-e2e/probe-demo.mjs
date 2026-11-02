@@ -79,12 +79,12 @@ try {
     check('第二幕：到期那行在催问「后来成了吗」', /· 已到期[^\n]*后来成了吗/u.test(out));
     check(
       '第一幕那行给的是「已经做了就现在收尾」',
-      /· 截止\][^\n]*memory_resolve\(id=\d+, done=true\)/u.test(out),
+      /· 截止\][^\n]*memory_resolve\(id=\d+, outcome=done\|cancelled\)/u.test(out),
       '还没到期时唯一的收尾入口：用户自己说做完了，就调它',
     );
     check(
       '已到期的那行不叠加提前收尾',
-      !/· 已到期[^\n]*done=true\)/u.test(out),
+      !/· 已到期[^\n]*outcome=done\|cancelled\)/u.test(out),
       '那一行本来就有催问指令，两条并排会读成两件事',
     );
     check('第三幕：答了之后写出一条「已办成」的新事实', /已办成（\d\d-\d\d 确认）/.test(out));
@@ -128,7 +128,7 @@ try {
     const db = new DatabaseSync(dbPath);
     const id = Number(db.prepare("SELECT id FROM facts WHERE kind = 'plan' ORDER BY id LIMIT 1").get().id);
     db.close();
-    await loom.call('memory_resolve', { id, done: true }, SESSION);
+    await loom.call('memory_resolve', { id, outcome: 'done' }, SESSION);
     const settled = String(await loom.call('memory_doctor', {}, SESSION));
     check('收尾之后不再报「下一步」', !settled.includes('· 下一步'), '已经办成的没什么要等');
     check('收尾被记进计划那行', /条已有结果/.test(settled), settled.split('\n').find((row) => row.includes('计划与矛盾')) ?? '');

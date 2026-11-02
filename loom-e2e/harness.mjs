@@ -200,3 +200,29 @@ export function createLoom({ dbPath, config = {}, llm }) {
     },
   };
 }
+
+/**
+ * Boot the plugin with its interval timers captured instead of started.
+ *
+ * Maintenance is a 60-second timer in real use, and no probe can wait three
+ * minutes to find out what it does to a row. Calling the captured callback once
+ * runs exactly the code the host would run at minute three — no stub, no
+ * re-implementation of the sweep, so the assertion cannot drift away from the
+ * behaviour. `timers` holds `{ callback, ms }` in the order they were set.
+ *
+ * @param options - same shape as `createLoom`.
+ * @returns the loom and the timers it would have started.
+ */
+export function createLoomWithTimers(options) {
+  const timers = [];
+  const real = globalThis.setInterval;
+  globalThis.setInterval = (callback, ms) => {
+    timers.push({ callback, ms });
+    return 0;
+  };
+  try {
+    return { loom: createLoom(options), timers };
+  } finally {
+    globalThis.setInterval = real;
+  }
+}

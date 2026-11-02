@@ -9,8 +9,9 @@
  *   2. an overdue plan puts one ask in the block — not every turn, but not
  *      only once either: an unanswered plan comes back after `planNudgeDays`
  *      — and the ask carries the id to answer with
- *   3. both answers are recorded: 办成 and 没办成 each write a new fact, and the
- *      plan stops being a live plan either way
+ *   3. all three endings are recorded: 办成 / 没办成 / 不做了 each write a new
+ *      fact, and the plan stops being a live plan either way — with 不做了 kept
+ *      apart from 没办成, because a decision is not a failure
  *
  * The clock is the harness's, advanced by `gapMs`, so "tomorrow" really is
  * tomorrow and the plan is really overdue when the next turn runs.
@@ -20,7 +21,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createLoom, DAY, MIN } from './harness.mjs';
+import { createLoom, createLoomWithTimers, DAY, MIN } from './harness.mjs';
 
 const SESSION = 'probe-plan-outcome';
 const root = mkdtempSync(join(tmpdir(), 'loom-outcome-'));
@@ -217,7 +218,7 @@ try {
     const line = loom.memoryBlock(SESSION).split('\n').find((row) => row.includes('交材料')) ?? '';
     const id = Number(/memory_resolve\(id=(\d+)/u.exec(line)?.[1] ?? 0);
     check('拿到计划 id', id > 0, String(id));
-    const said = await loom.call('memory_resolve', { id, done: true, note: '上午去交了' }, SESSION);
+    const said = await loom.call('memory_resolve', { id, outcome: 'done', note: '上午去交了' }, SESSION);
     check('工具回话是「办成了」', String(said).includes('办成了'), String(said));
     const outcome = newest(dbPath, 'fact');
     check('新事实写了结果', String(outcome.text).includes('已办成'), String(outcome.text));
@@ -229,8 +230,14 @@ try {
     await loom.turn(SESSION, '那件事弄完了', '好', { gapMs: MIN });
     const after = loom.memoryBlock(SESSION);
     check('计划区不再出现这条', !/\S+ · 已到期.*交材料/u.test(after), after.split('\n').find((row) => row.includes('交材料')) ?? '(无)');
-    const twice = await loom.call('memory_resolve', { id, done: false }, SESSION);
+    const twice = await loom.call('memory_resolve', { id, outcome: 'missed' }, SESSION);
     check('收过尾的再调不重复写', String(twice).includes('之前已经收过尾了'), String(twice));
+    /*
+     * 第二次传的是 missed，但库里存的是 done。回话必须说库里那个 ——
+     * 照着入参复述会让模型以为结局被改了，接着把它当成「没去」用。
+     */
+    check('重复调用报的是库里那个结局，不是这次传的', String(twice).includes('办成了') && !String(twice).includes('没办成'), String(twice));
+    check('重复调用没多写一条事实', rows(dbPath, "SELECT id FROM facts WHERE kind = 'fact'").length === 1, String(rows(dbPath, "SELECT id FROM facts WHERE kind = 'fact'").length));
     loom.dispose();
   }
 
@@ -242,7 +249,7 @@ try {
     await loom.turn(SESSION, '这两天有点忙', '嗯', { gapMs: 5 * DAY });
     const line = loom.memoryBlock(SESSION).split('\n').find((row) => row.includes('看房')) ?? '';
     const id = Number(/memory_resolve\(id=(\d+)/u.exec(line)?.[1] ?? 0);
-    const said = await loom.call('memory_resolve', { id, done: false }, SESSION);
+    const said = await loom.call('memory_resolve', { id, outcome: 'missed' }, SESSION);
     check('工具回话是「没办成」', String(said).includes('没办成'), String(said));
     const outcome = newest(dbPath, 'fact');
     check('新事实写了没办成', String(outcome.text).includes('没办成'), String(outcome.text));
@@ -252,15 +259,110 @@ try {
     loom.dispose();
   }
 
+  console.log('\n[4b] 不去了 → 第三种结局，不是「没办成」');
+  {
+    const { loom, dbPath } = boot('cancelled');
+    await loom.call('memory_write', { text: '用户打算周五去看房', kind: 'plan' }, SESSION);
+    const id = Number(newest(dbPath, 'plan').id);
+    const line = loom.memoryBlock(SESSION).split('\n').find((row) => row.includes('看房')) ?? '';
+    /*
+     * 未到期的行只给两个结局：还没到日子，谈不上「没办成」。
+     * 只给 done 的话，用户说「不去了」时模型只有「不调」和「记成没办成」两条路。
+     */
+    check('还没到期的行给的是「做了」和「不做了」两个结局', /outcome=done\|cancelled/u.test(line) && !line.includes('后来成了吗'), line);
+    const said = await loom.call('memory_resolve', { id, outcome: 'cancelled' }, SESSION);
+    check('工具回话是「已取消」', /已取消/u.test(String(said)) && !/没办成/u.test(String(said)), String(said));
+    const outcome = newest(dbPath, 'fact');
+    check('新事实写的是取消，不是没办成', String(outcome.text).includes('已取消') && !String(outcome.text).includes('没办成'), String(outcome.text));
+    const plan = rows(dbPath, 'SELECT * FROM facts WHERE id = ?', id)[0];
+    check('计划标成 cancelled', plan.resolved_at !== null && plan.outcome === 'cancelled', `${String(plan.resolved_at)}/${String(plan.outcome)}`);
+    check('计划原文没被改写', String(plan.text) === '用户打算周五去看房', String(plan.text));
+    await loom.turn(SESSION, '今天先这样', '好', { gapMs: MIN });
+    const after = loom.memoryBlock(SESSION);
+    check(
+      '计划区不再出现它（留下的是不带期限的事实）',
+      !after.split('\n').some((row) => row.includes('看房') && (row.includes('· 截止') || row.includes('已到期'))),
+      after.split('\n').find((row) => row.includes('看房')) ?? '(无)',
+    );
+    const doctor = String(await loom.call('memory_doctor', {}, SESSION));
+    check('医生把它算成已有结果，不算待确认', /1 条已有结果/u.test(doctor) && !/\d+ 条时间待确认/u.test(doctor), doctor.split('\n').find((row) => row.includes('计划与矛盾')) ?? '');
+    /*
+     * 块里靠「计划区不含已收尾」避免误读，搜索结果没有分区，只能靠这一句标记。
+     * 不带标记的话，模型搜到「用户打算周五去看房」会当成还没去。
+     */
+    const found = String(await loom.call('memory_search', { query: '看房' }, SESSION));
+    check('搜索结果里那条计划标着已取消', /用户打算周五去看房（已取消）/u.test(found), found.split('\n').find((row) => row.includes('看房')) ?? '(无)');
+    /*
+     * 改期工具也要报库里那个结局。它对一条取消的计划说「没办成」，
+     * 就是把这次分开的两件事又并回去了。
+     */
+    const late = String(await loom.call('memory_settle', { id, accept: true }, SESSION));
+    check('取消之后改期被挡下，且说的是「已取消」', /已经有结果了（已取消）/u.test(late), late);
+    loom.dispose();
+  }
+
+  console.log('\n[4c] 过了日子还是可以取消');
+  {
+    const { loom, dbPath } = boot('cancelled-late');
+    await loom.call('memory_write', { text: '用户打算明天去交材料', kind: 'plan' }, SESSION);
+    rewindPlans(dbPath);
+    await loom.turn(SESSION, '这两天有点忙', '嗯', { gapMs: 5 * DAY });
+    const line = loom.memoryBlock(SESSION).split('\n').find((row) => row.includes('交材料')) ?? '';
+    check('催问那一行三个结局都给', /outcome=done\|missed\|cancelled/u.test(line), line);
+    const id = Number(/memory_resolve\(id=(\d+)/u.exec(line)?.[1] ?? 0);
+    const said = await loom.call('memory_resolve', { id, outcome: 'cancelled', note: '后来不去了' }, SESSION);
+    check('过期了也能记成取消', /已取消/u.test(String(said)), String(said));
+    const fact = newest(dbPath, 'fact');
+    check('事实写的是取消，并带上用户原话', String(fact.text).includes('已取消') && String(fact.text).includes('后来不去了'), String(fact.text));
+    check('计划区不再问它', !/· 已到期[^\n]*交材料/u.test(loom.memoryBlock(SESSION)), '');
+    loom.dispose();
+  }
+
+  console.log('\n[4d] 收过尾的计划不再被标成过期');
+  {
+    /*
+     * 维护是真实使用里那颗 60 秒的定时器。抓下来手动跑一次，跑的是同一段代码：
+     * 一条已经收尾的计划，日子过后不该被打上 `expired_at` —— 打上之后
+     * `scoreFact` 的 `expiryFactor` 会按天把它从检索里减半，最后 `factsDueForPurge`
+     * 会把这条唯一记录删掉，而 `resolve()` 刻意不改写它就是为了留下这句原话。
+     *
+     * 同一格里放一条没结果的计划做对照：它必须照旧被打上，否则这条断言
+     * 只是在测「维护没跑」。
+     */
+    const dbPath = join(mkdtempSync(join(root, 'expired-')), 'loom.db');
+    const { loom, timers } = createLoomWithTimers({ dbPath, config: { consolidation: { enabled: false } } });
+    await loom.call('memory_write', { text: '用户打算周五去看房', kind: 'plan' }, SESSION);
+    await loom.call('memory_write', { text: '用户打算周五去交材料', kind: 'plan' }, SESSION);
+    const idOf = (needle) => Number(rows(dbPath, "SELECT id FROM facts WHERE kind = 'plan' AND text LIKE ?", `%${needle}%`)[0].id);
+    await loom.call('memory_resolve', { id: idOf('看房'), outcome: 'cancelled' }, SESSION);
+    /*
+     * 只把日期拨到过去，不碰 `expired_at` —— `rewindPlans` 会连这个字段一起写，
+     * 而这一组要测的正是「维护会不会写它」。
+     */
+    const at = Date.now() - DAY;
+    const raw = new DatabaseSync(dbPath);
+    raw.prepare("UPDATE facts SET expires_at = ?, due_from = ? WHERE kind = 'plan'").run(at, at);
+    raw.close();
+    check('维护定时器被抓住了', timers.length > 0, `${timers.length} 个`);
+    await timers[0].callback();
+    const closed = rows(dbPath, "SELECT * FROM facts WHERE kind = 'plan' AND text LIKE '%看房%'")[0];
+    const open = rows(dbPath, "SELECT * FROM facts WHERE kind = 'plan' AND text LIKE '%交材料%'")[0];
+    check('已经收尾的计划没被打上过期', closed.expired_at === null, `expired_at=${String(closed.expired_at)}`);
+    check('同一轮里没结果的计划照旧打上（证明维护真的跑了）', open.expired_at !== null, `expired_at=${String(open.expired_at)}`);
+    loom.dispose();
+  }
+
   console.log('\n[5] 收尾只对计划有效');
   {
     const { loom } = boot('guard');
     const written = await loom.call('memory_write', { text: '用户养了一只猫叫锅贴', kind: 'fact' }, SESSION);
     const id = Number(/#(\d+)/u.exec(String(written))?.[1] ?? 0);
-    const said = await loom.call('memory_resolve', { id, done: true }, SESSION);
+    const said = await loom.call('memory_resolve', { id, outcome: 'done' }, SESSION);
     check('事实拒绝收尾', String(said).includes('不是计划'), String(said));
-    const missing = await loom.call('memory_resolve', { id: 999999, done: true }, SESSION);
+    const missing = await loom.call('memory_resolve', { id: 999999, outcome: 'done' }, SESSION);
     check('不存在的 id 明说找不到', String(missing).includes('没有找到'), String(missing));
+    const bogus = await loom.call('memory_resolve', { id, outcome: 'whatever' }, SESSION).then((text) => String(text), (error) => String(error));
+    check('枚举之外的值在进引擎之前就被挡下', /结局只能|invalid|enum/u.test(bogus), bogus.split('\n')[0]);
     loom.dispose();
   }
 
@@ -286,7 +388,7 @@ try {
 
     // 收尾之后，改期提案不再被接受，日期也不动。
     const before = Number(newest(dbPath, 'plan').expires_at);
-    const said = await loom.call('memory_resolve', { id, done: true }, SESSION);
+    const said = await loom.call('memory_resolve', { id, outcome: 'done' }, SESSION);
     check('先收尾', String(said).includes('办成了'), String(said));
     const settled = await loom.call('memory_settle', { id, accept: true }, SESSION);
     check('收尾后拒绝改期', String(settled).includes('已经有结果'), String(settled));
@@ -308,7 +410,7 @@ try {
     await loom.turn(SESSION, '这两天有点忙', '嗯', { gapMs: 5 * DAY });
     const line = loom.memoryBlock(SESSION).split('\n').find((row) => row.includes('交材料')) ?? '';
     const id = Number(/memory_resolve\(id=(\d+)/u.exec(line)?.[1] ?? 0);
-    await loom.call('memory_resolve', { id, done: true }, SESSION);
+    await loom.call('memory_resolve', { id, outcome: 'done' }, SESSION);
     const report = String(await loom.call('memory_doctor', {}, SESSION));
     const row = report.split('\n').find((item) => item.includes('条计划')) ?? '(无)';
     check('报告里有「已有结果」', row.includes('已有结果'), row);

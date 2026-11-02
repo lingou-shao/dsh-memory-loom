@@ -146,7 +146,7 @@ try {
 
     // --- 收尾一个老计划，写出来的事实不能有期限 ---
     const oldPlanId = Number(/memory_resolve\(id=(\d+)/u.exec(planLine)?.[1] ?? 0);
-    const settled = await after.call('memory_resolve', { id: oldPlanId, done: true, note: '上午交的' }, SESSION);
+    const settled = await after.call('memory_resolve', { id: oldPlanId, outcome: 'done', note: '上午交的' }, SESSION);
     check('老计划能收尾', String(settled).includes('办成了'), String(settled));
     const outcome = query(dbPath, 'SELECT text, expires_at, kind FROM facts ORDER BY id DESC LIMIT 1')[0];
     check('收尾事实没有期限', outcome.expires_at === null && outcome.kind === 'fact', `${String(outcome.expires_at)}/${String(outcome.kind)}`);
@@ -205,7 +205,7 @@ try {
     check('超长文本能写', /#\d+/u.test(String(wrote)), String(wrote).slice(0, 40));
     const stored = query(dbPath, 'SELECT text FROM facts ORDER BY id DESC LIMIT 1')[0];
     check('超长文本被截断到可渲染', String(stored.text).length <= 900, `${String(stored.text).length} 字符`);
-    const missing = await loom.call('memory_resolve', { id: 999999, done: true }, SESSION);
+    const missing = await loom.call('memory_resolve', { id: 999999, outcome: 'done' }, SESSION);
     check('不存在的计划不改状态', String(missing).includes('没有找到'), String(missing));
     const settled = await loom.call('memory_settle', { id: 999999, accept: true }, SESSION);
     check('不存在的 settle 明确回答', typeof settled === 'string' && settled.length > 0, String(settled));
