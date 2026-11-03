@@ -180,8 +180,8 @@ const sections = (ctx) => [...ctx.systemPrompt.layers.merge(undefined, (layer) =
   // `toolNames()` 是整张表，含预置的三个占名工具；我们自己注册的只看 loom_ 前缀。
   const names = loom.toolNames().filter((name) => name.startsWith('loom_'));
   const all = loom.toolNames();
-  check('装得上了', names.length === 15, `${names.length} 个自己的工具，表里共 ${all.length} 个`);
-  check('15 个名字全换了前缀', names.length === 15 && all.length === 18, names.slice(0, 3).join(','));
+  check('装得上了', names.length === 16, `${names.length} 个自己的工具，表里共 ${all.length} 个`);
+  check('16 个名字全换了前缀', names.length === 16 && all.length === 19, names.slice(0, 3).join(','));
   check('别人占着的三个名字我们一个都没碰', ['memory_search', 'memory_write', 'memory_forget'].every((n) => !names.includes(n)));
   check('memory_search 仍然是别人的', loom.shared.tools.get('memory_search')?.description === 'occupied by another plugin');
   check('协议里教模型用的是新名字', /loom_search/u.test(loom.protocol()) && !/memory_search/u.test(loom.protocol()), '');
