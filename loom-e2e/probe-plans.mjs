@@ -186,7 +186,8 @@ try {
       !after.split('\n').some((row) => row.includes('· 截止] 下周五去体检')),
       after.split('\n').find((row) => row.includes('体检')) ?? '（块里已经没有它）',
     );
-    check('留下的是一条「已办成」的事实', /下周五去体检 —— 已办成（\d\d-\d\d 确认），提前去的/u.test(after));
+    // 收尾写出来的是事实，事实行会把句子里的「下周五」补成日期，所以这里容许那个括号
+    check('留下的是一条「已办成」的事实', /下周五(（\d\d-\d\d）)?去体检 —— 已办成（\d\d-\d\d 确认），提前去的/u.test(after));
     check('另一条计划没被连坐', after.includes('我打算戒烟'));
     check(
       '收尾写出来的不是一条计划',
