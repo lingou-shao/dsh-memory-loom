@@ -16,6 +16,8 @@ interface Config$1 {
   timezone: string;
   /** Capture every user/assistant turn into L0. */
   capture: boolean;
+  /** Prefix every tool name carries; set to `loom_` to run beside another memory plugin. */
+  toolPrefix: string;
   /** Raw-turn storage policy. */
   l0: {
     /** Per-message cap in characters; `0` stores the message verbatim. */
