@@ -38,6 +38,53 @@
 
 要求 Node `^22.19.0 || >=24`（使用内置 `node:sqlite`，无原生编译）。
 
+### 装之前先看一眼：是不是已经装了别的记忆插件
+
+**这是替代品，不是叠加品。** DSH 的工具名全局唯一，重名不是「后装的少一个工具」，而是**后装的整个插件加载失败**——15 个工具一个都不进表，三块提示词也一起撤销。宿主的行为是实测过的，不是推测。
+
+这个生态里至少四个记忆插件用了同一套工具名：
+
+| 插件 | 与我们重名的工具 |
+| --- | --- |
+| `dsh-memory`（SQLite + FTS5） | `memory_search` `memory_write` `memory_forget` |
+| Memory Library（工作区卡片库） | `memory_search` `memory_write` `memory_forget` |
+| Workspace Recollection | `memory_search` `memory_write` `memory_forget` `memory_index` |
+| `@max-null/dsh-memory` | `memory_search` `memory_forget` |
+
+`memory_search` / `memory_write` / `memory_forget` 是这个生态的事实标准名。**15 个名字里任意一个撞上就整体装不上**，所以装之前值得花十秒确认。
+
+装的时候如果撞了，你会看到这样一句（不是宿主的 `already registered`，那样看不出该怎么办）：
+
+```
+memory-loom: 工具名 memory_search 已被另一个插件占用（多半是另一个记忆插件）。
+DSH 的工具名全局唯一，重名会让整个插件加载失败——所以这一版不会半残运行，也不会顶掉对方。
+两种解法，任选一种：
+  ① 二选一：dsh plugin --profile <你的 profile> remove <那个记忆插件>（它的记忆文件不会被删除，以后装回来还在）
+  ② 共存：在 profile 的 cordis.patch.yml 给本插件设置 toolPrefix: loom_ …
+```
+
+**① 二选一（推荐）。** 卸载另一个插件**不会删掉它的记忆**：`dsh plugin remove` 只摘插件，`.dsh-memory/`、`$DSH_HOME/memory/memory.db` 这些文件原地不动，以后装回去还在。所以「换一个试试」是有退路的，代价只是重装一次。
+
+**② 共享一个进程（`toolPrefix`）。** 愿意付代价的话可以两个都留：
+
+```yaml
+- id: memory-loom
+  name: dsh-memory-loom
+  config:
+    path: !!js dshHomePath('memory', 'loom.db')
+    toolPrefix: loom_
+```
+
+设了之后 15 个工具变成 `loom_search` / `loom_write` / …，提示词、工具描述、工具返回里出现的名字**一起跟着换**（不是只换注册名——那样模型会照着一个不存在的名字去调）。默认值是 `memory_`，所以**不设就是原来的行为**。
+
+不设为默认，是因为共存不是「多一个备份」，是每轮多读一份「关于你的长期记忆」：
+
+- 两边都往系统提示词里注入，加起来每轮多 3000–5000 字符（我们的块约 300 token，同类插件普遍 2000–4200 字符）；
+- 两边都在会话结束时调模型做抽取，同一段对话付两次钱、等两次延迟；
+- 模型看不到「这块是 loom 的、那块是别人的」，它会当成一段连续回忆来读——两份互相矛盾时，它不知道信哪个；如果对方还写人格（`SOUL.md` 之类），冲突会更明显。
+
+**技术上也别指望「谁都能装」**：改名只能让**我们**避开别人的名字。如果本插件先加载、占住了 `memory_search`，后装的对方照样会整插件失败——那是它的重名，不是我们能修的。所以真要两个都装，先装对方、再装我们并设 `toolPrefix`。
+
 ### 方式一：DSH 里一键安装（推荐）
 
 打开 DSH → **插件** → **添加插件**，输入框里贴一个地址，回车。三种都实测可装：
@@ -70,7 +117,7 @@ DSH 用 pnpm 把包装进 profile（`~/.dsh/profiles/<profile>/node_modules`）�
 20:05:11  loom.db 被创建            ← 就是它调用了 apply()
 ```
 
-宿主主进程此前已经在跑（不需要新进程），当前会话的 id 也没变，只是收到一条 `### Updated Tool Schemas` 注入，14 个 `memory_*` 工具当场出现在工具列表里。
+宿主主进程此前已经在跑（不需要新进程），当前会话的 id 也没变，只是收到一条 `### Updated Tool Schemas` 注入，15 个 `memory_*` 工具当场出现在工具列表里。
 
 **升级不走这条。** 升级是「同一个 bundle 换内容」，不是「出现一个新的 bundle」，宿主不会为它重组一次。实测（0.2.16 → 0.2.23，`dsh plugin add` 13.9 秒跑完、磁盘上确实换了包）：
 
@@ -87,11 +134,11 @@ DSH 用 pnpm 把包装进 profile（`~/.dsh/profiles/<profile>/node_modules`）�
 1. **先备份库**：把 `%USERPROFILE%\.dsh\memory\loom.db` 复制一份。第一次加载新代码会 `ALTER TABLE` 加列（0.2.23 加三列），备份是为了万一出问题有退路。
 2. 装新版（粘新链接 / `dsh plugin add` / `pnpm install`，同平常）。
 3. **把 DSH 完全退出再打开**（不是新开会话，是重启进程）。
-4. 用 `memory_doctor` 第一行确认：应该显示 `运行 0.2.24 · 库 schema v4`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版。
+4. 用 `memory_doctor` 第一行确认：应该显示 `运行 0.2.25 · 库 schema v4`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版。
 
 通常几秒内就能确认两件事：
 
-1. 工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 14 个 `memory_*` 工具。**首次安装**不必新开会话，当前会话会被刷新；**升级必须重启 DSH**，重启之前那 14 个不会变（见上）。若迟迟不出现，先排除下面「安装被拒绝」那种情况。
+1. 工具列表里出现 `memory_search` / `memory_expand` / `memory_profile` / `memory_index` 等 15 个 `memory_*` 工具。**首次安装**不必新开会话，当前会话会被刷新；**升级必须重启 DSH**，重启之前那 15 个不会变（见上）。若迟迟不出现，先排除下面「安装被拒绝」那种情况。
 2. `%USERPROFILE%\.dsh\memory\loom.db`（Linux/macOS 是 `~/.dsh/memory/loom.db`）被创建。**`diary/` 目录不会跟着出现**——它是懒创建的，要等第一条日记落盘才建；刚装好看不到那个目录是正常的，不是没生效。
 
 > 注意区分两件事：「装上了」只意味着**工具挂上了**。真正开始积累记忆（写事件、写日记）要等**整合**触发——单会话累计 2 万 token，或空闲 5 分钟。装完立刻问「你还记得什么」，答案当然是空的。
@@ -144,6 +191,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | `locale`                                                  | `zh`                                           | 记忆块语言（`zh` / `en`）            |
 | `timezone`                                                | 空                                              | IANA 时区；空表示用宿主时区              |
 | `capture`                                                 | `true`                                         | 是否把每轮对话写入 L0                  |
+| `toolPrefix`                                              | `memory_`                                      | 15 个工具的名字前缀。装有别的记忆插件、又不想卸载时设成 `loom_`，提示词与工具描述里的名字会一起换（见 §2「装之前先看一眼」）。默认值不改成别的，因为共存有实际代价 |
 | `l0.maxCharsPerMessage`                                   | `0`                                            | 单条消息存储上限。`0` = 全文落库，一个字不丢（v0.2.1 已修改：0.2.0 及以前硬编码 8000 字静默截断） |
 | `maintenanceIntervalSeconds`                              | `60`                                           | 后台维护与整合检查间隔                   |
 | `consolidation.enabled`                                   | `true`                                         | 关掉后**完全不整合**：不产生事件与事实，也不再调模型；原始对话照旧落 L0、`T` 尾巴照旧可见。省额度用这个（v0.2.7 已修复：此前该开关不生效，设 `false` 仍会整合） |
@@ -376,7 +424,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | v0.2.22 | 期限是给没做的事的 | 窗口只挂 `kind=plan`；`memory_resolve` 收尾 |
 | v0.2.23 | 没有结果，就一直问下去 | `nudged_at` 变时间锚；名额按最久没问轮转 |
 | v0.2.24 | 让插件说得出自己在跑哪一版 | `BUILD_VERSION` + doctor 版本行；升级必须重启 |
-| v0.2.25 | 把「到日子我会问」提前说出来；计划可以取消；抽不出东西的十段对话 | 计划行带承诺时点与收尾入口（三种结局）；doctor 报「下一步」与抽取产出；`memory_demo` 演一遍；抽取口径分两类，规则路径补「做事」与否定式偏好 |
+| v0.2.25 | 把「到日子我会问」提前说出来；计划可以取消；抽不出东西的十段对话；和别人的记忆插件撞名 | 计划行带承诺时点与收尾入口（三种结局）；doctor 报「下一步」与抽取产出；`memory_demo` 演一遍；抽取口径分两类，规则路径补「做事」与否定式偏好；撞名时说人话，`toolPrefix` 可共存 |
 
 ### v0.2.25：承诺是延迟兑现的，所以先把日子说出来
 
@@ -442,7 +490,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 
 收尾之后它**真的离开计划区**：`openPlans` / `overduePlans` 都带 `resolved_at IS NULL`，写出来的新事实是 `kind=fact`，不会以计划身份回来。`probe-plans.mjs` 第 6、7 组（15 项）锁的就是这件事——从行上抓 id、收尾、断言那一行消失、断言另一条计划没被连坐、断言重复收尾被挡下、断言「刚问过还没到再问」的那一行仍然带着编号。
 
-全套 36 个脚本（30 个探针 + 6 个场景）与 `selftest` 全绿。
+全套 37 个脚本（31 个探针 + 6 个场景）与 `selftest` 全绿。
 
 ### 取消不是失败：计划有第三种结局
 
@@ -509,6 +557,43 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 只在一个都没挂上时才多说一句。挂了一半不是异常——一段纯寒暄、一段只是在让助手干活，本来就抽不出东西，把它们报成问题会让真正的问题沉在噪音里。
 
 **这一版证明不了的事**：提示词改了，模型是否真的多抽了，探针证明不了。能证明的只有口径确实写在提示词里（`probe-extract.mjs` 比对那次请求的全文）、规则路径的九个正反例各归各位、医生那一行的格式与触发条件。**模型那半要等真实库的下一个数字**——这正是加那一行的原因：否则改完口径，没有任何地方能当场读出来它有没有生效。
+
+### 和别人的记忆插件撞名
+
+推广文发出去之后，最先要回答的问题不是「它比别的记忆插件好吗」，而是**「我已经装了别人的，这个能不能直接装」**。
+
+**默认不能。** 宿主把工具放在一张按名字索引的表里，重名直接抛错；而 `apply()` 抛错会把**整个插件回滚**——不是丢一个工具，是 15 个工具一个都不进表、三块提示词一起撤掉。用户看到的只有「装上了，但它什么都不记得」。
+
+这个生态里至少四个记忆插件用了同一套名字：
+
+| 插件 | 与我们重名的工具 |
+| --- | --- |
+| `dsh-memory`（SQLite + FTS5） | `memory_search` `memory_write` `memory_forget` |
+| Memory Library（工作区卡片库） | `memory_search` `memory_write` `memory_forget` |
+| Workspace Recollection | `memory_search` `memory_write` `memory_forget` `memory_index` |
+| `@max-null/dsh-memory` | `memory_search` `memory_forget` |
+
+`memory_search` / `memory_write` / `memory_forget` 是这个生态的事实标准名——四家用的是同一套。**15 个名字里任意一个撞上，整体装不上。**
+
+这一版加了三样东西。
+
+**1. 装之前先说话。** `apply()` 一进门就把 15 个名字查一遍，撞了就在**打开数据库之前**停下，抛一句能照着做的话：谁占了、卸了会不会丢东西、共存的开关叫什么。宿主原来的报错是 `tool "memory_search" is already registered`——它说的是事实，但没告诉一个普通用户下一步该干什么，而且它是在我们注册到第 3 个工具时才抛的，前面两样已经挂上去了。
+
+**2. 卸载不删记忆，这点要写进错误信息里。** 用户说「不想删以前的东西」时，怕的其实是数据。`dsh plugin remove` 只摘插件：`.dsh-memory/`、`$DSH_HOME/memory/memory.db` 这些文件原地不动，装回来还在。所以「换一个试试」是有退路的。
+
+**3. `toolPrefix`：想共存的人可以共存，但默认关。** 设成 `loom_`，15 个工具变成 `loom_search` / `loom_write` / …，并且**提示词、工具描述、工具返回里的名字一起换**。
+
+只换注册名是不够的——那样模型会在提示词里读到「用 `memory_search` 查更早的记忆」，然后去调一个叫 `memory_search` 的工具，而那个现在是别人的，参数完全不一样。所以改名落在三个出口上：工具定义（名字 + 描述 + 参数说明）、每个提示词 section 的 `text()`、每个工具的返回值。这三处覆盖了全部 **21 处**工具名引用，包括写死在文案里的那些；以后再新增文案也自动覆盖，不用回来补。
+
+不设为默认，因为共存有真实代价：
+
+- 两边都往系统提示词注入，每轮多 3000–5000 字符（我们约 300 token，同类插件普遍 2000–4200 字符）；
+- 两边都在会话结束时调模型抽取，同一段对话付两次钱、等两次延迟；
+- 模型看不到「这块是 loom 的、那块是别人的」，会当成一段连续回忆——两份矛盾时它不知道信哪个；对方若还写人格文件，冲突更明显。
+
+**技术上还有一个不对称，值得说清楚。** 改名只解决「我们避开别人」。反过来不成立：如果本插件先加载、占住了 `memory_search`，后装的对方照样整插件失败——那是它的重名，我们修不了。所以真要两个都装，顺序是**先装对方，再装我们并设 `toolPrefix`**。
+
+**证明不了的**：探针能证明撞名时抛的是人话而不是宿主原文、能证明改名之后 15 个工具都在且提示词跟着换、能证明同名调用不会串到对方身上；**证明不了**换成 `loom_search` 之后模型的调用率有没有下降。`memory_*` 是模型先验最强的名字，改名等于拿这一点去换共存——这也是它不该默认开的原因之一。
 
 ### v0.2.24：升级不重启等于没升级，医生自报版本
 
@@ -1113,7 +1198,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 
 ## 10. 目录
 
-本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（8647 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
+本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（8801 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
 
 ```
 lib/
@@ -1164,33 +1249,33 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
 cordis.patch.yml      bundle patch：把插件挂进 profile
 ```
 
-`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 8647 行：
+`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 23 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 8801 行：
 
 | region | 行（v0.2.25 工作树） | 职责 |
 | --- | --- | --- |
 | `src/engine/time.ts` | 7–557 | 时区、`day_key`、本地日界、短日期格式 |
 | `src/engine/types.ts` | 558–690 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
-| `src/config.ts` | 691–883 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
-| `src/engine/db.ts` | 884–1281 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
-| `src/engine/text.ts` | 1282–1729 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
-| `src/engine/store.ts` | 1730–2634 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
-| `src/engine/decay.ts` | 2635–2704 | 衰减与时效权重 |
-| `src/engine/domain.ts` | 2705–3010 | 10 个固定域的判定与中英标签 |
-| `src/engine/salience.ts` | 3011–3202 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
-| `src/engine/segment.ts` | 3203–3425 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
-| `src/engine/consolidate.ts` | 3426–4259 | 整合：抽取、事件标题与摘要、写事实与事件、叙事证据 |
-| `src/engine/roles.ts` | 4260–4454 | 主人 / 朋友 / 路人权限梯度与可见性 |
-| `src/engine/maintenance.ts` | 4455–4602 | 每轮维护：衰减、去重、trace 清理、路人到期 |
-| `src/engine/backup.ts` | 4603–4661 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
-| `src/engine/render.ts` | 4662–5128 | 记忆块与分页渲染（`SECTION`、预算） |
-| `src/engine/retrieval.ts` | 5129–5711 | 召回、排序融合、冲突检测、分页切片 |
-| `src/engine/persona.ts` | 5712–5888 | 人设卡五区、自我叙述、对他的印象 |
-| `src/engine/diary-mirror.ts` | 5889–5948 | 日记 Markdown 镜像（v0.2.9） |
-| `src/engine/index.ts` | 5949–6664 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
-| `src/host.ts` | 6665–6775 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
-| `src/tools.ts` | 6776–7876 | 15 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单、`memory_demo` 的假时钟演示 |
-| `src/index-layer.ts` | 7877–8274 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
-| `src/index.ts` | 8275–8647 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
+| `src/config.ts` | 691–963 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
+| `src/engine/db.ts` | 964–1361 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
+| `src/engine/text.ts` | 1362–1809 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
+| `src/engine/store.ts` | 1810–2714 | `MemoryStore`：L0–L3 与主观层的全部 SQL |
+| `src/engine/decay.ts` | 2715–2784 | 衰减与时效权重 |
+| `src/engine/domain.ts` | 2785–3090 | 10 个固定域的判定与中英标签 |
+| `src/engine/salience.ts` | 3091–3282 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
+| `src/engine/segment.ts` | 3283–3505 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
+| `src/engine/consolidate.ts` | 3506–4339 | 整合：抽取、事件标题与摘要、写事实与事件、叙事证据 |
+| `src/engine/roles.ts` | 4340–4534 | 主人 / 朋友 / 路人权限梯度与可见性 |
+| `src/engine/maintenance.ts` | 4535–4682 | 每轮维护：衰减、去重、trace 清理、路人到期 |
+| `src/engine/backup.ts` | 4683–4741 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
+| `src/engine/render.ts` | 4742–5208 | 记忆块与分页渲染（`SECTION`、预算） |
+| `src/engine/retrieval.ts` | 5209–5791 | 召回、排序融合、冲突检测、分页切片 |
+| `src/engine/persona.ts` | 5792–5968 | 人设卡五区、自我叙述、对他的印象 |
+| `src/engine/diary-mirror.ts` | 5969–6028 | 日记 Markdown 镜像（v0.2.9） |
+| `src/engine/index.ts` | 6029–6744 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析 |
+| `src/host.ts` | 6745–6855 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
+| `src/tools.ts` | 6856–7998 | 15 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单、`memory_demo` 的假时钟演示 |
+| `src/index-layer.ts` | 7999–8396 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回 |
+| `src/index.ts` | 8397–8801 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
 
 行号对应**v0.2.25 的工作树**，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 

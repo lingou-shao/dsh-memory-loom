@@ -55,7 +55,12 @@ function makeCtx(surface, liveAgents) {
         if (typeof disposer === 'function') disposer();
       });
     },
-    tools: { register(tool) { surface.tools.set(tool.name, tool); } },
+    // `get` is what the collision guard reads before registering anything the
+    // host would reject; a fake without it only exercises the happy path.
+    tools: {
+      register(tool) { surface.tools.set(tool.name, tool); },
+      get(name) { return surface.tools.get(name); },
+    },
     logger: () => ({ warn() {}, info() {}, debug() {}, error() {} }),
     get(name, strict = true) {
       if (name === 'agents') return { list: () => [...liveAgents] };

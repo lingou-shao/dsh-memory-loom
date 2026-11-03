@@ -60,9 +60,15 @@ export function mockLlm(reply) {
  * @param options.config - overrides merged into the real defaults.
  * @param options.llm - fake `llm` service; omitting it runs the rule-only mode.
  */
-export function createLoom({ dbPath, config = {}, llm }) {
+export function createLoom({ dbPath, config = {}, llm, presetTools = [] }) {
   const shared = { sections: new Map(), contexts: new Map(), handlers: new Map(), tools: new Map(), disposers: [] };
   const systemPrompt = createShared(shared);
+  /*
+   * Names another plugin already took. The real registry refuses a duplicate,
+   * so seeding them here is how a probe reproduces "someone installed a second
+   * memory plugin first" without installing one.
+   */
+  for (const name of presetTools) shared.tools.set(name, { name, description: 'occupied by another plugin' });
 
   const ctx = {
     systemPrompt,
@@ -78,6 +84,14 @@ export function createLoom({ dbPath, config = {}, llm }) {
     tools: {
       register(tool) {
         shared.tools.set(tool.name, tool);
+      },
+      /**
+       * The real registry keys tools by name and exposes `get`. The plugin uses
+       * it to refuse a load that would collide with another memory plugin, so a
+       * harness without it would only ever exercise the happy path.
+       */
+      get(name) {
+        return shared.tools.get(name);
       },
     },
     logger: () => ({ warn: () => {}, info: () => {}, debug: () => {}, error: () => {} }),

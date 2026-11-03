@@ -1060,4 +1060,42 @@ const datedId = Number(dated.match(/memory_resolve\(id=(\d+)/u)?.[1] ?? Number.N
 
 ### 26.6 回归
 
-全套 36 个脚本（30 个探针 + 6 个场景）与 `selftest` 30 项全绿。`probe-linkage` 8 项、`probe-extract` 22 项、`probe-alias-prompt` 保留原样。
+全套 37 个脚本（31 个探针 + 6 个场景）与 `selftest` 30 项全绿。`probe-linkage` 8 项、`probe-extract` 22 项、`probe-alias-prompt` 保留原样。
+
+## 二十七、v0.2.25 补：和别人的记忆插件撞名
+
+### 27.1 先问「宿主会怎样」，再问「我们该怎样」
+
+这件事不能从「加个探测」开始，得先知道重名的真实后果。三种可能差别很大：只挡一件工具、后装的整个插件失效、宿主起不来。
+
+`probe-collision.mjs` 的 [1]–[3] 用**真实 cordis + 真实 `ToolRuntime` / `SystemPrompt`** 跑（不是替身），两组假插件各注册工具并挂一个 prompt section：
+
+| 顺序 | 结果 |
+| --- | --- |
+| 名字不重叠 | 两边各 4 个工具并存，两个 section 都在 |
+| 撞一个，别人先装 | **后装的整体回滚**：我们 15 个工具一个没进表，连没撞的也没有；prompt section 也撤了；先装的完整存活 |
+| 反过来我们先装 | 同理，后来者整体失效，`memory_write` 也没进表 |
+
+回滚干净这一条要单独断言：`apply()` 抛错后如果 prompt section 留在表里，模型会看到「用 `memory_search` 查更早的记忆」而那个工具此刻是别人的——比什么都不挂更坏。[2] 断言 `probe-loom:protocol` 不在 section 表里。
+
+### 27.2 我们这一层说了什么
+
+[4]–[7] 换成真实插件：
+
+| 组 | 守什么 |
+| --- | --- |
+| 4 | 撞名时抛的是中文、点出具体名字、给了「卸载」和「共存」两条路、写明卸载不删记忆；并且**在打开数据库之前**就停下（断言 `loom.db` 不存在） |
+| 5 | 设 `toolPrefix: loom_` 后 15 个工具都以 `loom_` 注册，别人占的三个名字一个没碰，协议里教模型用的是新名字，`loom_doctor` 真能调通 |
+| 6 | 四个非法前缀（`loom-` / `1loom_` / 带空格 / 空串）都被挡下并说明格式 |
+| 7 | 同一进程 `apply()` 两次：仍然失败，但**不许**说「已被另一个插件占用」 |
+
+第 7 组是写完才想到的：`get(name)` 拿到的是我们上一次注册的对象，只按名字判断就会误报，把用户支去卸一个他根本没装的插件。用 `WeakSet` 记对象身份区分。
+
+### 27.3 测试脚手架的两处补丁
+
+- `harness.mjs` 的假 `ctx.tools` 只有 `register`，加了 `get`（真实宿主有）；再加 `presetTools`，可以预置「别人已占的名字」，不用真装一个插件。
+- `probe-degrade-notice` / `probe-hotload` / `probe-prompt-guard` 各自搭了假 ctx，同样只有 `register`，一并补上——否则它们跑的是「探测永远不触发」的分支，等于没测。
+
+### 27.4 回归
+
+全套 37 个脚本（31 个探针 + 6 个场景）+ `selftest` 30 项全绿。`probe-collision` 29 项。

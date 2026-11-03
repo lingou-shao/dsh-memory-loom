@@ -8,6 +8,11 @@
 # The store lives under the harness home, never under the current directory: a
 # durable record of someone's conversations must not depend on where the CLI
 # was started. Point `path` at `:memory:` for a throwaway deployment.
+#
+# `toolPrefix` defaults to `memory_`. If another memory plugin already owns
+# `memory_search` / `memory_write` / `memory_forget` (several do), this plugin
+# refuses to load rather than take that one down with it — set `toolPrefix:
+# loom_` to run both, and read README §2 for what running both costs.
 - insert:
     - id: memory-loom
       name: dsh-memory-loom
