@@ -200,6 +200,41 @@ try {
   check('纯字符串数组也认得出是记忆', plainPreview.includes('会导入 2 条'), plainPreview.split('\n')[3] ?? '');
   const plainDone = String(await loom.call('memory_import', { path: plainJson, confirm: true }, SESSION));
   check('字符串数组也能落库', plainDone.includes('→ 2 条'), plainDone.split('\n')[0] ?? '');
+  // 规则被收回之后（`active = 0`）就不该再被搬进来。少了这条判据，从另一个
+  // 安装里导入、或者把自己 `memory_export` 的产物拖回来，都会把用户明确说过
+  // 「以后别管那条」的要求复活成常驻规则——而这正是收回这条路存在的理由。
+  // 两条路都要堵：源文件自己标了 `active: 0` 的（A），和源文件没标、但本地
+  // 已经收回过的（B，靠去重集合认）。
+  const retiredRule = '用户要求每周五下班前把周报发到组里';
+  await loom.call('memory_write', { text: retiredRule, kind: 'instruction' }, SESSION);
+  // 编号按搜索结果取，不写死：前面几组已经往偏好表里塞过东西了。
+  const foundRule = String(await loom.call('memory_search', { query: '周报' }, SESSION));
+  const ruleRef = /\(#(P\d+)\)/u.exec(foundRule)?.[1];
+  check('新规矩能被搜到并拿到编号', ruleRef !== undefined, foundRule.split('\n')[0] ?? '');
+  const retireDone = String(await loom.call('memory_forget', { ref: ruleRef }, SESSION));
+  check('先把那条规矩收回', retireDone.includes('已移出') && retireDone.includes('周报'), retireDone);
+
+  const noFlag = join(root, '旧导出.json');
+  writeFileSync(noFlag, JSON.stringify([{ text: retiredRule }, { text: '用户的健身卡 2027 年 4 月到期，到期前一个月要记得续' }]), 'utf8');
+  const noFlagPreview = String(await loom.call('memory_import', { path: noFlag }, SESSION));
+  check('没标状态的文件也搬不回已收回的规矩（去重认得出）', noFlagPreview.includes('会导入 1 条') && noFlagPreview.includes('重复 1 条'), noFlagPreview.split('\n')[3] ?? '');
+  const noFlagDone = String(await loom.call('memory_import', { path: noFlag, confirm: true }, SESSION));
+  check('只落了新那条', noFlagDone.includes('→ 1 条'), noFlagDone.split('\n')[0] ?? '');
+
+  const retiredJson = join(root, '规矩导出.json');
+  writeFileSync(retiredJson, JSON.stringify([
+    { text: '用户以前要求每天早晚各汇报一次进度，这条已经作废', active: 0 },
+    { text: '用户把家里那台旧打印机送给了楼下的邻居，型号是 LaserJet 1020' }
+  ]), 'utf8');
+  const retiredPreview = String(await loom.call('memory_import', { path: retiredJson }, SESSION));
+  check('收回的规矩不搬（预览只认一条）', retiredPreview.includes('会导入 1 条'), retiredPreview.split('\n')[3] ?? '');
+  check('预览说清了为什么少一条', retiredPreview.includes('已收回的 1 条'), retiredPreview.split('\n').find((line) => line.includes('跳过')) ?? '');
+  const retiredDone = String(await loom.call('memory_import', { path: retiredJson, confirm: true }, SESSION));
+  check('落库也只落那一条', retiredDone.includes('→ 1 条'), retiredDone.split('\n')[0] ?? '');
+  const revivedRule = String(await loom.call('memory_search', { query: '汇报进度' }, SESSION));
+  check('作废的规矩没有复活', !revivedRule.includes('汇报'), revivedRule);
+  const stillRule = String(await loom.call('memory_search', { query: '周报' }, SESSION));
+  check('收回的那条也没有借去重复活', !stillRule.includes('周报'), stillRule);
   loom.dispose();
 
   // ── 8. 落库的细节（要关掉库才好在 Windows 上直连） ──────────────────

@@ -170,9 +170,9 @@ declare const indexDefaults: {
     coldDays: number;
     includeAssistant: boolean;
 };
-/** A resolved reference: `E37` / `F12` / `D3` / `T`. */
+/** A resolved reference: `E37` / `F12` / `P3` / `D3` / `T`. */
 declare type Ref = {
-    kind: "event" | "fact" | "doc" | "tail";
+    kind: "event" | "fact" | "preference" | "doc" | "tail";
     id: number;
 };
 /** Read-mostly hook index over the store this plugin owns. */
