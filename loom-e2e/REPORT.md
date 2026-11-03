@@ -1298,4 +1298,4 @@ raw.exec(`UPDATE facts SET created_at = created_at - ${90 * DAY}, updated_at = u
 
 ### 31.4 回归
 
-全套 **41 个脚本（35 个探针 + 6 个场景）** + `selftest` 30 项全绿。新增 `probe-extract-quote` 23 项；`probe-extract`（口径与规则路径）与 `probe-doctor` 未受影响——新增的医生那一行在测试库里不出现（没有带摘抄的行），所以 `problems` 计数没变。
+全套 **41 个脚本（35 个探针 + 6 个场景）** + `selftest` 30 项全绿。新增 `probe-extract-quote` 23 项；`probe-extract`（口径与规则路径）、`probe-demo`、`probe-intake`、`probe-upgrade` 这些会读医生输出的脚本都没受影响——新增的那一行只在库里有带摘抄的事实时才出现，它们的假模型不返回 `quote`。
