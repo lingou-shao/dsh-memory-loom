@@ -115,7 +115,7 @@ DSH 的工具名全局唯一，重名会让整个插件加载失败——所以�
 
 | 贴什么 | 例子 | 特点 |
 | --- | --- | --- |
-| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.28/dsh-memory-loom-0.2.28.tgz` | 版本钉死，装到的就是这一版 |
+| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.29/dsh-memory-loom-0.2.29.tgz` | 版本钉死，装到的就是这一版 |
 | **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，能拿到最新提交，但每次装到的内容会变 |
 | **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
@@ -453,6 +453,38 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | v0.2.26 | 换插件不该等于从头开始 | 新增 `memory_import`：装好先扫别人的记忆文件、问一句要不要导入、按类型分层落库、原始日期保留；`aliases=true` 补上「缺别名的批量重建」入口（要调模型，有成本，先报价）；提示词里问三次就不再问，医生长期可查 |
 | v0.2.27 | 行首的日期是「他哪天说的」，不是「哪天要去」 | 句子里的「明天」「前天」「上周三」按写入那天换算成日期，补在词后面；原文一个字不改，只活在渲染层；模糊的（前几天、上个月）不补，看着像时间的名词（后天免疫、明天出版社）不碰 |
 | v0.2.28 | 规矩也得有门，可门牌号会撞 | `memory_search` 终于搜 `preferences`（此前第四条规矩起没有任何工具够得着）；编号分 `#P`，`memory_expand` 能取回原文；`memory_forget` 加 `ref`，不再靠数字猜表；顺带补上规矩的第一个出口——此前没有任何代码写过 `active = 0`，「以后别管那条规矩了」等于没听见 |
+
+| v0.2.29 | 抽出来的那条事实，原文里到底有没有 | 抽取时多要一句「原文摘抄」，写入前在本地比一次子串（不调第二次模型）；三个结局分开：对得上 / 对不上 / 没给摘抄就不判；只记录不拦截；`memory_doctor` 报「引用核对」 |
+
+### v0.2.29：校验位，不是重传
+
+模型抽一条「用户对芒果过敏」，此前没有任何东西能判断这句话是不是它编的。`evidence` 里只有 `ttlPhrase` 和 `duePrecision`——都是**关于时间**的，没有一个字段关于**这句话从哪来**。于是幻觉进库是无声的：行在、能搜到、读起来还通顺，而且会一直待在那里。
+
+这个洞的形状是「缺校验位」，不是「缺重传」。所以补法是在抽取时多问一句「支撑这句话的原文是哪几个字」，然后在**本地**做一次子串比对：
+
+```
+quoteVerified: true    原文里找到了
+quoteVerified: false   没找到——可能编的，也可能改写造成的
+（键不存在）            没给摘抄，或短到没法判：不算失败
+```
+
+**为什么不是「让模型再校验一遍」。** 那是 ARQ，要多一次模型调用、多一份延迟、多一次可能出错的地方，而它能做到的事（这句和原文对不对得上）用 `String.includes` 就能做到。校验位不该是算出来的，应该是**读出来的**。
+
+**为什么第一版只记录、不拦截。** 提取提示词要求把主语写成「用户」，模型很容易把这个改写顺手带进摘抄：「原文是我，我照抄成了用户」。这类误报和真编造在字符串层面长得一模一样。按 `false` 直接丢事实，会把一条真事扔掉——而在记忆系统里，**漏记比多记难发现得多**。所以先攒数据：`memory_doctor` 加一行 `· 引用核对  12 条带出处，全部对得上`，出现对不上的时候变成 `✗`、点名其中两条，并说清下一步怎么核对。等实测知道误报率，再决定拦不拦。
+
+五个细节：
+
+- **归一化去掉标点和空白**再比。模型给自己的引文换个标点，不能说明那些字不在原文里。
+- **省略号切段，每段都要在**。「下周三去北京……挂的是上午的号」能过，因为它没有要求中间那些字也在。
+- **短于 4 个字的不判**。「好」「嗯」这种摘抄作为证据没有意义，判成 false 只是噪声。
+- **merge 不覆盖旧值**。同一条事实第二次被抽到时，`evidence` 是合并的，旧的 `quoteVerified` 留着——一次没给出摘抄，不能推翻上一次已经核对过的事实。
+- **这行给的建议得真能把它自己消掉**。第一次写的时候医生那条查询漏了「只数活着的行」，于是你按建议 `memory_forget` 掉那条编造的事实之后，`✗` 还亮着、还点名它。补上之后，删完这一行就消失——一条照着做也没有用的建议，比没有建议更坏。
+
+顺带把抽取的 `maxTokens` 从 900 提到 1200：每条事实多一个摘抄，8 条就多出三分之一输出。截断的 JSON 解析不出来，整段会掉到规则路径——那个失败是无声的，掉的是记忆而不是错误码。
+
+`probe-extract-quote.mjs` 23 项，七组：提示词口径 6 项、逐字摘抄与标点差异各 1 项、编造与主语改写都标 `false` 且两条事实**都还在库里**、没给摘抄与太短的都不写这个键、省略号两段都在才过、医生三种状态（全对 / 有错 / 没数据）各一行、以及删掉那条之后 ✗ 整行消失。
+
+**没覆盖到的地方**：规矩（`kind=instruction`）进的是 `preferences` 表，那张表没有 `evidence` 列，所以规矩没有校验位；v0.2.29 之前写进来的事实也没有。这两类在医生那一行的分母里都不出现——分母只数**带摘抄的行**，否则比例永远是假的。
 
 ### v0.2.28：规矩也得有门，可门牌号会撞
 
@@ -1324,13 +1356,14 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 | 别人的记忆（v0.2.26）       | 只搬句子：类型与领域按本插件重判，事件、时间线、人格文件读不进来 | 对方的结构没有可迁移的语义（它的 `category` 不是我们的 `domain`，它的时间线没有 `l0` 证据），硬映射会把「读不懂」变成「记错了」；旧计划也不成其为计划，见 §31 |
 | 相对时间词（v0.2.27）       | 补到日期，但只补说得准的 | 「前几天」「上个月」「过段时间」没有确定的那一天，补出来就是编；「后天免疫」「先天与后天」「明天出版社」里的词是名词，不碰。补注只活在渲染层，库里仍是原话，见 §32 |
 | 规矩的可检索性（v0.2.28）    | `memory_search` 能搜 `preferences` 了，但仍是词法匹配 | 「我有什么忌口」与「我不吃香菜」不共享任何二字组，照样搜不到；补上的是「有门」，不是「懂意思」。常驻区仍然只带最近 `retrieval.residentPreferences`（默认 3）条，更早的靠搜索或关键词召回，见 §33 |
-| 删除不覆盖偏好（v0.2.28 发现） | `memory_identity erase` 清的是对话与事实，`preferences` 的行留着；能逐条收回，不能批量清 | `requestDeletion` 从来没碰过这张表——规矩在实现里一直是只写不删。这次补了单条出口（`memory_forget(ref="P…")`），批量清理要连带改 `erase` 的两条分支和它的回话，留到下一个版本，见 §33.7 |
+| 删除不覆盖偏好（v0.2.28 发现） | `memory_identity erase` 清的是对话与事实，`preferences` 的行留着；能逐条收回，不能批量清 | `requestDeletion` 从来没碰过这张表——规矩在实现里一直是只写不删。这次补了单条出口（`memory_forget(ref="P…")`），批量清理要连带改 `erase` 的两条分支和它的回话，留到下一个版本，见 §33.8 |
+| 抽取的引用校验（v0.2.29）   | 只记录，不拦截；规矩那一类没有校验位 | 模型如果把「我」改写成「用户」再抄进摘抄，会和真编造一样被判 false，两者在字符串层面分不开。按 false 丢事实会把真事扔掉，而漏记比多记难发现，所以先攒数据；`preferences` 没有 `evidence` 列，v0.2.29 之前写的事实也没有，都不进分母，见 §34 |
 
 ---
 
 ## 10. 目录
 
-本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（10536 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
+本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（10645 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
 
 ```
 lib/
@@ -1381,36 +1414,36 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
 cordis.patch.yml      bundle patch：把插件挂进 profile
 ```
 
-`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 24 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 10536 行：
+`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 24 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 10645 行：
 
-| region | 行（v0.2.28 工作树） | 职责 |
+| region | 行（v0.2.29 工作树） | 职责 |
 | --- | --- | --- |
 | `src/engine/time.ts` | 7–557 | 时区、`day_key`、本地日界、短日期格式 |
 | `src/engine/types.ts` | 558–690 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
 | `src/config.ts` | 691–964 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
 | `src/engine/db.ts` | 965–1362 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
-| `src/engine/text.ts` | 1363–1810 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度 |
-| `src/engine/store.ts` | 1811–2788 | `MemoryStore`：L0–L3 与主观层的全部 SQL，含偏好的读、收回与删除（v0.2.28） |
-| `src/engine/decay.ts` | 2789–2858 | 衰减与时效权重 |
-| `src/engine/domain.ts` | 2859–3164 | 10 个固定域的判定与中英标签 |
-| `src/engine/salience.ts` | 3165–3356 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
-| `src/engine/segment.ts` | 3357–3579 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
-| `src/engine/consolidate.ts` | 3580–4413 | 整合：抽取、事件标题与摘要、写事实与事件、叙事证据 |
-| `src/engine/roles.ts` | 4414–4608 | 主人 / 朋友 / 路人权限梯度与可见性 |
-| `src/engine/maintenance.ts` | 4609–4756 | 每轮维护：衰减、去重、trace 清理、路人到期 |
-| `src/engine/backup.ts` | 4757–4815 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
-| `src/engine/render.ts` | 4816–5370 | 记忆块与分页渲染（`SECTION`、预算）、相对时间词补注（v0.2.27） |
-| `src/engine/retrieval.ts` | 5371–5953 | 召回、排序融合、冲突检测、分页切片 |
-| `src/engine/persona.ts` | 5954–6130 | 人设卡五区、自我叙述、对他的印象 |
-| `src/engine/diary-mirror.ts` | 6131–6190 | 日记 Markdown 镜像（v0.2.9） |
-| `src/engine/index.ts` | 6191–7079 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析、`searchFor` 三路收集（含偏好，v0.2.28） |
-| `src/engine/intake.ts` | 7080–8164 | 导入别人的记忆：扫描、格式嗅探（SQLite / JSON / JSONL / 文本）、对话表与配置表的排除、预览与落库、批量补别名（v0.2.26） |
-| `src/host.ts` | 8165–8275 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
-| `src/tools.ts` | 8276–9619 | 16 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单、`memory_demo` 的假时钟演示 |
-| `src/index-layer.ts` | 9620–10049 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回（`P` 编号，v0.2.28） |
-| `src/index.ts` | 10050–10536 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
+| `src/engine/text.ts` | 1363–1847 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度、摘抄比对（v0.2.29） |
+| `src/engine/store.ts` | 1848–2825 | `MemoryStore`：L0–L3 与主观层的全部 SQL，含偏好的读、收回与删除（v0.2.28） |
+| `src/engine/decay.ts` | 2826–2895 | 衰减与时效权重 |
+| `src/engine/domain.ts` | 2896–3201 | 10 个固定域的判定与中英标签 |
+| `src/engine/salience.ts` | 3202–3393 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
+| `src/engine/segment.ts` | 3394–3616 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
+| `src/engine/consolidate.ts` | 3617–4487 | 整合：抽取、事件标题与摘要、写事实与事件（含出处校验位，v0.2.29）、叙事证据 |
+| `src/engine/roles.ts` | 4488–4682 | 主人 / 朋友 / 路人权限梯度与可见性 |
+| `src/engine/maintenance.ts` | 4683–4830 | 每轮维护：衰减、去重、trace 清理、路人到期 |
+| `src/engine/backup.ts` | 4831–4889 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
+| `src/engine/render.ts` | 4890–5444 | 记忆块与分页渲染（`SECTION`、预算）、相对时间词补注（v0.2.27） |
+| `src/engine/retrieval.ts` | 5445–6027 | 召回、排序融合、冲突检测、分页切片 |
+| `src/engine/persona.ts` | 6028–6204 | 人设卡五区、自我叙述、对他的印象 |
+| `src/engine/diary-mirror.ts` | 6205–6264 | 日记 Markdown 镜像（v0.2.9） |
+| `src/engine/index.ts` | 6265–7153 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析、`searchFor` 三路收集（含偏好，v0.2.28） |
+| `src/engine/intake.ts` | 7154–8238 | 导入别人的记忆：扫描、格式嗅探（SQLite / JSON / JSONL / 文本）、对话表与配置表的排除、预览与落库、批量补别名（v0.2.26） |
+| `src/host.ts` | 8239–8349 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
+| `src/tools.ts` | 8350–9728 | 16 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单、`memory_demo` 的假时钟演示 |
+| `src/index-layer.ts` | 9729–10158 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回（`P` 编号，v0.2.28） |
+| `src/index.ts` | 10159–10645 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
 
-行号对应**v0.2.28 的工作树**，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
+行号对应**v0.2.29 的工作树**，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 
 `loom-e2e/` 单独跑需要 `npm install`（它复用父目录的 `node_modules`），运行方式：
 
