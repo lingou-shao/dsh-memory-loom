@@ -105,7 +105,14 @@ const count = (table) => db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().
 console.log(`  L0 ${count('l0')} 条 / 事件 ${count('events')} 段 / 事实 ${count('facts')} 条 / 人设区 ${count('persona_zones')}`);
 check('L0 完整保存了全部 16 轮', count('l0') === 16, `${count('l0')} 条`);
 check('整合产出了事件段', count('events') >= 2, `${count('events')} 段`);
-check('规则模式对技术内容抽不出事实（发现）', count('facts') === 0, '0 条 —— extractWithRules 只认偏好/身份/计划句式，代码与表格内容全被过滤');
+/*
+ * 这条断言在 v0.2.30 之前写的是「抽不出事实」，因为当时确实抽不出——规则
+ * 路径的词表全是「谁做了什么」，对「把 handler 改成只接 jobId」这种句子无感。
+ * 那一版把「抽不出来」当成一条被记录下来的性质，是可以的；但性质修好之后
+ * 断言要跟着改，否则它就从「记录缺陷」变成了「锁死缺陷」。
+ */
+const techFacts = db.prepare("SELECT text FROM facts WHERE status IN ('active','disputed')").all().map((row) => String(row.text));
+check('规则模式能从技术内容里抽到改动', techFacts.some((text) => /改成/u.test(text)), `${techFacts.length} 条：${techFacts[0]?.slice(0, 34) ?? '无'}`);
 
 /* ---------------- 索引层重建与展开 ---------------- */
 
