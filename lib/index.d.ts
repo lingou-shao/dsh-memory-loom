@@ -98,6 +98,16 @@ interface Config$1 {
     unconfirmedBelow: number;
     /** Print the tone an event was spoken in, when it was not neutral (Q64). */
     toneHint: boolean;
+    /**
+     * How many (subject, attr) facts may ride in the memory block (v0.2.32).
+     *
+     * A cap on a chain, not on a list of guesses: the newest values win and
+     * the oldest fall off. `memory_search` is not bound by it — it takes the
+     * caller's limit. `0` turns the slot channel off.
+     */
+    slotMax: number;
+    /** Similarity a slot hit is scored with; kept under 1 so a lexical hit still leads (v0.2.32). */
+    slotSimilarity: number;
     layerPenalty: {
       fact: number;
       event: number;

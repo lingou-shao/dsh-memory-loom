@@ -57,12 +57,21 @@ const V1_GONE = [
   ['facts', 'nudged_at'],
   ['facts', 'resolved_at'],
   ['facts', 'outcome'],
+  ['facts', 'subject'],
+  ['facts', 'attr'],
+  ['facts', 'value'],
   ['events', 'aliases'],
 ];
 
 /** The columns v0.2.17 dropped off a store, then the version stamp. */
 function downgrade(dbPath) {
   const db = new DatabaseSync(dbPath);
+  /*
+   * v5's slot index covers two of the columns being dropped, and SQLite
+   * refuses to drop a column an index mentions. A real v1 store never had the
+   * index, so removing it is part of the downgrade rather than a workaround.
+   */
+  db.exec('DROP INDEX IF EXISTS facts_slot');
   for (const [table, column] of V1_GONE) db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   db.exec('PRAGMA user_version = 1');
   db.close();
@@ -105,9 +114,9 @@ try {
     // --- 用当前代码打开 ---
     const after = createLoom({ dbPath });
     const cols = columns(dbPath, 'facts');
-    check('迁移把五列都加回来了', ['aliases', 'due_from', 'nudged_at', 'resolved_at', 'outcome'].every((c) => cols.includes(c)), '');
+    check('迁移把八列都加回来了', ['aliases', 'due_from', 'nudged_at', 'resolved_at', 'outcome', 'subject', 'attr', 'value'].every((c) => cols.includes(c)), '');
     check('events.aliases 也加回来了', columns(dbPath, 'events').includes('aliases'), '');
-    check('版本号升到 4', Number(query(dbPath, 'PRAGMA user_version')[0]['user_version']) === 4, String(query(dbPath, 'PRAGMA user_version')[0]['user_version']));
+    check('版本号升到 5', Number(query(dbPath, 'PRAGMA user_version')[0]['user_version']) === 5, String(query(dbPath, 'PRAGMA user_version')[0]['user_version']));
 
     const factsAfter = query(dbPath, 'SELECT id, text, kind FROM facts WHERE kind IN (\'fact\',\'preference\',\'plan\') ORDER BY id');
     check('事实一条没丢', factsAfter.length === factsBefore.length, `${factsBefore.length} → ${factsAfter.length}`);
@@ -156,7 +165,7 @@ try {
     // --- 再开一次：不该重复 ALTER，也不该把版本号往回写 ---
     const again = createLoom({ dbPath });
     check('二次打开正常', columns(dbPath, 'facts').length === cols.length, `${cols.length} 列`);
-    check('二次打开版本号仍是 4', Number(query(dbPath, 'PRAGMA user_version')[0]['user_version']) === 4, '');
+    check('二次打开版本号仍是 5', Number(query(dbPath, 'PRAGMA user_version')[0]['user_version']) === 5, '');
     again.dispose();
   }
 
@@ -170,7 +179,7 @@ try {
     downgrade(dbPath);
     exec(dbPath, 'PRAGMA user_version = 0');
     const second = createLoom({ dbPath });
-    check('user_version=0 也能迁移', Number(query(dbPath, 'PRAGMA user_version')[0]['user_version']) === 4, '');
+    check('user_version=0 也能迁移', Number(query(dbPath, 'PRAGMA user_version')[0]['user_version']) === 5, '');
     await second.turn(SESSION, '我在哪上班', '做地图的', { gapMs: 60_000 });
     check('老数据仍能召回', second.memoryBlock(SESSION).includes('地图'), second.memoryBlock(SESSION).split('\n').find((row) => row.includes('地图')) ?? '(没有)');
     second.dispose();
