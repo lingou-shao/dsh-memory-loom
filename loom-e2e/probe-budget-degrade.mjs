@@ -76,6 +76,15 @@ try {
 
 check('audit 记下了 degraded 字段', auditRow !== undefined && 'degraded' in detail, `degraded=${String(detail.degraded)}`);
 check('降级原因是 budget 而不是 model', Number(detail.reasons?.budget ?? 0) > 0, `reasons=${JSON.stringify(detail.reasons ?? {})}`);
+/*
+ * 一段只能算一次。
+ *
+ * 同一段里抽取和判断会先后降级，按事件计数的版本在这里报出 2，而 doctor 那
+ * 一行的单位是「段」——用户看到「配额用尽 4 段」时，实际只有 2 段记忆变弱。
+ * 数值系统性偏大比偏小更难发现，因为偏大看起来总是「有在报问题」。
+ */
+const reasonSum = Object.values(detail.reasons ?? {}).reduce((sum, n) => sum + Number(n ?? 0), 0);
+check('降级合计不超过段数', reasonSum <= Number(detail.segments ?? 0), `合计 ${reasonSum} / 段数 ${String(detail.segments)}`);
 check('配额确实被消耗到上限', llm.calls.length >= 2, `模型调用 ${llm.calls.length} 次`);
 
 // ── 第 2 层：doctor 报出用量 ──────────────────────────────────────────
