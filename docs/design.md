@@ -4,11 +4,11 @@
 
 **阅读约定**：本文按时间累加，前面章节写的是当时的判断，后面章节可能有修正。凡是前文提出、后文解决的问题，都在原处标了方括号标记并指向对应章节；仍未解决的统一收在 **§13**。看到前文的限制描述时，先看方括号里的标记，不要当成现状。
 
-| 标记 | 含义 |
-|---|---|
+| 标记                      | 含义                           |
+| ----------------------- | ---------------------------- |
 | `【vX 已修复】` / `【vX 已解决】` | 曾经是真问题，已在标注版本修掉；原处保留问题描述作为记录 |
-| `【vX 已修正】` | 前文的判断或数据被后来的实测推翻，结论已改 |
-| `【仍开放】` | 至今没做，原因与代价见 §13 |
+| `【vX 已修正】`              | 前文的判断或数据被后来的实测推翻，结论已改        |
+| `【仍开放】`                 | 至今没做，原因与代价见 §13              |
 
 ---
 
@@ -51,14 +51,14 @@
 
 **耦合边界（Q50）**：
 
-| 接缝 | 用途 | 是否阻塞 |
-|---|---|---|
-| `session/event` → `user/message`, `assistant/message` | 同步写 L0 | 写一次 SQLite，毫秒级 |
-| `session/event` → `request/context` | 记路由，供整合调用复用 | 否 |
-| `session/event` → `compaction/start` | WAL checkpoint | 否 |
-| `agent/created` | 注册人设 section 与记忆 context | 否 |
-| `agent/turn-stopping` | 收尾计数，必要时启动后台整合 | 否（整合不 await） |
-| `ctx.tools.register` | 六个工具 | 否 |
+| 接缝                                                    | 用途                       | 是否阻塞           |
+| ----------------------------------------------------- | ------------------------ | -------------- |
+| `session/event` → `user/message`, `assistant/message` | 同步写 L0                   | 写一次 SQLite，毫秒级 |
+| `session/event` → `request/context`                   | 记路由，供整合调用复用              | 否              |
+| `session/event` → `compaction/start`                  | WAL checkpoint           | 否              |
+| `agent/created`                                       | 注册人设 section 与记忆 context | 否              |
+| `agent/turn-stopping`                                 | 收尾计数，必要时启动后台整合           | 否（整合不 await）   |
+| `ctx.tools.register`                                  | 六个工具                     | 否              |
 
 存储 schema、检索算法、prompt 文本都不与宿主共享；宿主升级只需保证这五个接缝。
 
@@ -68,20 +68,20 @@
 
 单文件 SQLite（WAL）。所有表都带 `identity_id`，除人设与元数据外均按人隔离。
 
-| 表 | 层 | 作用 |
-|---|---|---|
-| `l0` | L0 | 原始对话：`session_id, turn, role, text, created_at, consolidated, purge_at` |
-| `facts` (+ `facts_fts`) | L1 | 原子事实：`kind, domain, tags, salience, base, stability, stability_max, confidence, ttl, expires_at, expired_at, pinned, status, isolated, from_visitor, source_ids, evidence, weight` |
-| `events` (+ `events_fts`) | L2 | 事件：`title, summary, domain, started_at, ended_at, turn_from/to, l0_from/to, salience, valence, arousal, status` |
-| `event_facts` | — | 事件 ↔ 事实 |
-| `narrative` | L3 | 自我叙事的历史版本 + 证据计数 |
-| `impressions` | 主观 | 每个用户一份印象 + 观察次数 + 置信度 |
-| `diary` | 主观 | 按用户隔离，每天上限 3 条。**只存 `entry / day_key / created_at`**（v0.2.9 删掉了 `weight` 与 `mood` 两个空转列）；同时导出为数据库旁边 `diary/YYYY-MM-DD.md` 的只读镜像 |
-| `preferences` (+ FTS) | 主观/隔离 | 指令性文本，只在相关 query 上检索 |
-| `persona_zones` / `persona_overlays` / `persona_history` | 人设 | 全局面板 + 每人覆盖层 + 变更历史 |
-| `identities` / `sessions` / `identity_claims` | 角色 | 主人/朋友/路人、会话绑定、认领审核 |
-| `memory_edges` | 图 | `SUPERSEDES` / `CONTRADICTS` |
-| `audit` / `traces` / `usage_daily` / `jobs` / `meta` | 运维 | 审计、召回轨迹（14 天）、每日模型调用预算、死信与元数据 |
+| 表                                                        | 层     | 作用                                                                                                                                                                                 |
+| -------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `l0`                                                     | L0    | 原始对话：`session_id, turn, role, text, created_at, consolidated, purge_at`                                                                                                            |
+| `facts` (+ `facts_fts`)                                  | L1    | 原子事实：`kind, domain, tags, salience, base, stability, stability_max, confidence, ttl, expires_at, expired_at, pinned, status, isolated, from_visitor, source_ids, evidence, weight` |
+| `events` (+ `events_fts`)                                | L2    | 事件：`title, summary, domain, started_at, ended_at, turn_from/to, l0_from/to, salience, valence, arousal, status`                                                                    |
+| `event_facts`                                            | —     | 事件 ↔ 事实                                                                                                                                                                            |
+| `narrative`                                              | L3    | 自我叙事的历史版本 + 证据计数                                                                                                                                                                   |
+| `impressions`                                            | 主观    | 每个用户一份印象 + 观察次数 + 置信度                                                                                                                                                              |
+| `diary`                                                  | 主观    | 按用户隔离，每天上限 3 条。**只存 `entry / day_key / created_at`**（v0.2.9 删掉了 `weight` 与 `mood` 两个空转列）；同时导出为数据库旁边 `diary/YYYY-MM-DD.md` 的只读镜像                                                    |
+| `preferences` (+ FTS)                                    | 主观/隔离 | 指令性文本，只在相关 query 上检索                                                                                                                                                               |
+| `persona_zones` / `persona_overlays` / `persona_history` | 人设    | 全局面板 + 每人覆盖层 + 变更历史                                                                                                                                                                |
+| `identities` / `sessions` / `identity_claims`            | 角色    | 主人/朋友/路人、会话绑定、认领审核                                                                                                                                                                 |
+| `memory_edges`                                           | 图     | `SUPERSEDES` / `CONTRADICTS`                                                                                                                                                       |
+| `audit` / `traces` / `usage_daily` / `jobs` / `meta`     | 运维    | 审计、召回轨迹（14 天）、每日模型调用预算、死信与元数据                                                                                                                                                      |
 
 索引按访问路径建：`facts(identity_id, status, updated_at)`、`l0(consolidated, identity_id, id)`、`events(identity_id, ended_at)`、`l0(purge_at)`。
 
@@ -151,10 +151,10 @@ score    = (sim·strength + emotion + layerPenalty) × expiry × conflict × wei
 
 人设写权限按**来源**判定，不按区作者的偏好：
 
-| 来源 | 允许 |
-|---|---|
-| `master`（工具调用） | 任何未锁定区；锁定区需 `confirmUnlock`；可写自己的覆盖层 |
-| `ai`（整合过程） | 只写 `editableBy: 'ai' \| 'both'` 且未锁定的区，且必须带 L0 证据 |
+| 来源             | 允许                                                |
+| -------------- | ------------------------------------------------- |
+| `master`（工具调用） | 任何未锁定区；锁定区需 `confirmUnlock`；可写自己的覆盖层              |
+| `ai`（整合过程）     | 只写 `editableBy: 'ai' \| 'both'` 且未锁定的区，且必须带 L0 证据 |
 
 锁定单向：锁定无摩擦，解锁必须二次确认。每次修改都进 `persona_history` 与 `audit`。
 
@@ -166,74 +166,76 @@ score    = (sim·strength + emotion + layerPenalty) × expiry × conflict × wei
 
 图例：✅ 按决策实现 · ◐ 实现但有差异 · ○ 未实现（附原因）
 
-| Q | 决策 | 实现 | 状态 |
-|---|---|---|---|
-| Q1 | 抽象层级为唯一主维度 | `l0/facts/events/narrative` 四表；`domain` 只作标签 | ✅ |
-| Q2 | 累积量 + 幂等标记 + 48h 兜底 | `triggerTokens` + `consolidated` 标记 + 5 分钟空闲触发 | ◐ 空闲触发早于 48h，兜底被取代【已解释，§7.2】 |
-| Q3 | 在线规则粗筛 + 离线模型精评 | `readEmotion` 写入时；整合时 `blendEmotion` 75/25 融合 | ✅ |
-| Q4 | 硬切 + 软切 + 兜底切 | `segment.ts` 三类边界 | ✅ |
-| Q5 | 二级软切 + 阈值×2 绝对硬切 | 二级 pass；`index - lastBoundary >= bound*2` | ✅ |
-| Q6 | 双维度规则合并 | `coherence*0.6 + arc*0.4` | ✅ |
-| Q7 | 一级区间内二级片段 ≤ N，动态、下限 5 | 超过 `bound` 时成对合并 | ✅ |
-| Q8 | K=20 / M=100，冷启动下限 5，显式样本不足 | `dynamicBound` | ✅ |
-| Q9 | 三路并行 + 融合 + 层级惩罚 | `retrieval.ts` 事实/事件/主观三路 | ✅ |
-| Q10 | 写入时 TTL，软失效降权 | `parseTtl` + `expires_at` + `expiryFactor` | ✅ |
-| Q11 | 连续降权，半衰期 45 天，floor 0.02 | `expiryFactor` | ✅ |
-| Q12 | 检索纯读 + 离线异步回写 | `noteAccess` 缓冲 → `maintain` 写回 S | ✅（冲突 C 已确认） |
-| Q13 | 证据约束 + 离线 + prompt 约束 | `narrativeEvidence` 门槛；只由整合写 | ✅ |
-| Q14 | 主观层独立平行；人设常驻；日记按人 | 独立表；人设 section；日记按 `identity_id` | ✅ |
-| Q15 | 权限按修改来源划分 | `writePersona` 按 `source` 判定 | ✅ |
-| Q16 | 「全都可改」只放开范围 | `editableBy` 可改，证据与审计不可关 | ✅ |
-| Q17 | 预设 + 用户覆盖；锁定单向 | `defaultZones` + `setLock` 二次确认 | ✅ |
-| Q18 | 一个主人、多个朋友、很多路人 | `roles.ts` | ✅ |
-| Q19 | 三层权限梯度 | 人设覆盖层、全局叙事、隔离日记、路边转职 | ✅ |
-| Q20 | 路人分层删除，延迟到整合完成 | `requestDeletion` + `markVisitorFacts` + 维护等待未整合 L0 | ✅ |
-| Q21 | 主人跨用户只见 L1/L2 | `searchFor` + `isVisibleCrossIdentity` | ✅ |
-| Q22 | 相册 | — | ○ 需要独立相似度通道，留作扩展 |
-| Q23 | 双曲衰减、S 提升、S_max=50× | `decay.ts` | ✅ |
-| Q24 | 写入去重：相似 + 判断，矛盾 supersede，Top-5 | `findNeighbours(5)` + `judgeWithRules/Model` | ✅ |
-| Q25 | 每月全量扫、只扫高风险区、阈值松 | `sweepDuplicates` 30 天一次，近 200 条，0.8 | ✅ |
-| Q26 | L2 随整合生成；L3 累积 + 定期重算 | 每段生成事件；证据达阈值重写叙事 | ✅ |
-| Q27 | 冷启动空 + 显式标记 + 首次整合出画像 | `RecallResult.coldStart`、`seedImpression` | ✅ |
-| Q28 | L0/L1/L2/L3 各有上界 | L0 按冲突 A 不清理；L1 靠权重与档案而非硬删 | ◐ 见偏差 7.2 |
-| Q29 | 2000 软 / 3000 硬 / 20 条 / 主观 25% | `render.ts` | ✅ |
-| Q30 | 主观层连续未命中只降配额 | — | ○ 需要跨轮命中率状态 |
-| Q31 | 按对话密度动态调 | — | ○ 同上 |
-| Q32 | 逐路改写 + Top-1 归一化 | `sim / topRaw`；无改写 | ◐ 无指代补全 |
-| Q33 | 混合格式 + 硬上限 | 表格行 + 自然语言 + 3000 硬顶 | ✅ |
-| Q34 | 写入检测 + 检索兜底 + 显式纠错 `disputed` | supersede；`detectConflict`；`correctionMarker` → weight 0.3 | ✅ |
-| Q35 | 规则 + 模型、下钻最多一次 | 证据薄时 `drill` 一次 | ✅ |
-| Q36 | 日记 ≤3/天无下限；印象增量；叙事证据触发 | `diaryPerDay`、`upsertImpression`、`narrativeEvidence` | ✅ |
-| Q37 | 在线失败降级 | 在线不做模型调用，全部确定性；注入缺失不标 | ◐ 无「标注缺失」文案 |
-| Q38 | 条目级独立 + 重试 + 死信 | 段级 try/catch、`jobs`、`dailyLlmCalls` | ✅ 重试为记录而非自动重跑 |
-| Q39 | 评估集与指标 | — | ○ 以测试集替代【仍开放，§13.3】 |
-| Q40 | 查看 + 导出 + 双档删除 | `memory_profile` / `export` / `forget` | ✅ |
-| Q41 | 真删除 + 合规留存 | `pending_delete` → 到期 `purgeFact`；审计只留操作 | ✅ |
-| Q42 | 部署级选择，7 天 | `roles.pendingDeleteDays` | ✅ |
-| Q43 | 7 天冷静期 + 立即彻底删除 | 默认软删，`permanent` 立即删 | ✅ |
-| Q44 | 指令性文本隔离 | `preferences` 表，只在相关 query 检索 | ✅ |
-| Q45 | 与对话历史去重、4000 上限 | — | ○ 由宿主管理历史，记忆块独立 |
-| Q46 | 固定域 + 受控细标签 | 10 域 + other；`domain` 参与去重与边界 | ✅ 细标签未实现 |
-| Q47 | SDK 内核 + 薄适配 + 可分离整合 | `src/engine` 不含 dsh | ✅ |
-| Q48 | 第一个宿主 dsh | 本包 | ✅ |
-| Q49 | 完整系统起步，不与现有插件共存 | 独立 store、独立工具名 | ✅ |
-| Q50 | 耦合只在触发与写入时序 | 五个接缝，见 §2 | ✅ |
-| Q51 | 采样 + trace，脱敏，14 天 | `traces` 记召回、`audit` 记变更，14 天清理 | ◐ 无采样开关 |
-| Q52 | 用户时区，写入时解释 | `config.timezone` → 会话时区 → `Intl` | ✅ |
-| Q53 | 主模型 + 轻量辅助 embedding | — | ○ 改用 FTS5 二元分词 |
-| Q54 | 两次调用 + 每日上限 + 规则兜底 | 抽取 + 判断；`usage_daily`；规则兜底 | ✅ |
-| Q55 | 纯规则降级，L0 继续积累 | 规则抽取 + BM25 + 衰减 | ✅ 无「48h 补跑」 |
-| Q56 | 乘法强度 + 加法调节 + 软失效乘 + 地板 | `finalScore` | ✅ |
-| Q57 | 会话隔离、用户互斥、去重窗口 5 分钟 | 会话隔离；单进程 SQLite；写回按维护周期批量 | ◐ 无跨进程互斥 |
-| Q58 | 双份备份、RPO/RTO | — | ○ 被 Q59 取代 |
-| Q59 | 备份责任交给用户 | 文档说明；不做对象存储 | ✅ |
-| Q60 | 主人部署，朋友/路人是数据主体 | 身份表 + 认领 | ✅ |
-| Q61 | 主人审核 + 挂起 + 合并 | `claimIdentity` / `reviewClaim` | ✅ |
-| Q62 | 朋友删除 L0+L1，保留印象 | 冷静期到期 `purgeExpiredL0` + `factsDueForPurge`；印象不动 | ✅ |
-| Q63 | 日记 0.3 权重计入叙事证据 | **最终决定不加权**：证据 = 事件条数（`narrativeEvidence()` 只查 `events`）；日记改为导出到 `diary/` 目录供人直接读 | ✅ 已定稿（v0.2.9，§13.1） |
-| Q64 | 语气分离注入 + 离线评估 | **收口为「读记忆时看得见当时的语气」**：事件行尾按 `valence`/`arousal` 标一句 `（语气偏冲）`，记忆块与 `memory_search` 都带；不做独立通道、不做离线评估 | ✅ 已收口（v0.2.9，§13.2） |
-| Q65 | 人设前、记忆块后、事实前主观后 | section 顺序 10 / 900 / 930；块内顺序 | ✅ |
-| Q66 | 冲突裁决 | 用户确认：协议规则 + 确定性检测 + 0.85 | ✅ |
+| Q   | 决策                              | 实现                                                                                                 | 状态                           |
+| --- | ------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Q1  | 抽象层级为唯一主维度                      | `l0/facts/events/narrative` 四表；`domain` 只作标签                                                       | ✅                            |
+| Q2  | 累积量 + 幂等标记 + 48h 兜底             | `triggerTokens` + `consolidated` 标记 + 5 分钟空闲触发                                                     | ◐ 空闲触发早于 48h，兜底被取代【已解释，§7.2】 |
+| Q3  | 在线规则粗筛 + 离线模型精评                 | `readEmotion` 写入时；整合时 `blendEmotion` 75/25 融合                                                      | ✅                            |
+| Q4  | 硬切 + 软切 + 兜底切                   | `segment.ts` 三类边界                                                                                  | ✅                            |
+| Q5  | 二级软切 + 阈值×2 绝对硬切                | 二级 pass；`index - lastBoundary >= bound*2`                                                          | ✅                            |
+| Q6  | 双维度规则合并                         | `coherence*0.6 + arc*0.4`                                                                          | ✅                            |
+| Q7  | 一级区间内二级片段 ≤ N，动态、下限 5           | 超过 `bound` 时成对合并                                                                                   | ✅                            |
+| Q8  | K=20 / M=100，冷启动下限 5，显式样本不足     | `dynamicBound`                                                                                     | ✅                            |
+| Q9  | 三路并行 + 融合 + 层级惩罚                | `retrieval.ts` 事实/事件/主观三路                                                                          | ✅                            |
+| Q10 | 写入时 TTL，软失效降权                   | `parseTtl` + `expires_at` + `expiryFactor`                                                         | ✅                            |
+| Q11 | 连续降权，半衰期 45 天，floor 0.02        | `expiryFactor`                                                                                     | ✅                            |
+| Q12 | 检索纯读 + 离线异步回写                   | `noteAccess` 缓冲 → `maintain` 写回 S                                                                  | ✅（冲突 C 已确认）                  |
+| Q13 | 证据约束 + 离线 + prompt 约束           | `narrativeEvidence` 门槛；只由整合写                                                                       | ✅                            |
+| Q14 | 主观层独立平行；人设常驻；日记按人               | 独立表；人设 section；日记按 `identity_id`                                                                   | ✅                            |
+| Q15 | 权限按修改来源划分                       | `writePersona` 按 `source` 判定                                                                       | ✅                            |
+| Q16 | 「全都可改」只放开范围                     | `editableBy` 可改，证据与审计不可关                                                                           | ✅                            |
+| Q17 | 预设 + 用户覆盖；锁定单向                  | `defaultZones` + `setLock` 二次确认                                                                    | ✅                            |
+| Q18 | 一个主人、多个朋友、很多路人                  | `roles.ts`                                                                                         | ✅                            |
+| Q19 | 三层权限梯度                          | 人设覆盖层、全局叙事、隔离日记、路边转职                                                                               | ✅                            |
+| Q20 | 路人分层删除，延迟到整合完成                  | `requestDeletion` + `markVisitorFacts` + 维护等待未整合 L0                                                | ✅                            |
+| Q21 | 主人跨用户只见 L1/L2                   | `searchFor` + `isVisibleCrossIdentity`                                                             | ✅                            |
+| Q22 | 相册                              | —                                                                                                  | ○ 需要独立相似度通道，留作扩展             |
+| Q23 | 双曲衰减、S 提升、S_max=50×             | `decay.ts`                                                                                         | ✅                            |
+| Q24 | 写入去重：相似 + 判断，矛盾 supersede，Top-5 | `findNeighbours(5)` + `judgeWithRules/Model`                                                       | ✅                            |
+| Q25 | 每月全量扫、只扫高风险区、阈值松                | `sweepDuplicates` 30 天一次，近 200 条，0.8                                                               | ✅                            |
+| Q26 | L2 随整合生成；L3 累积 + 定期重算           | 每段生成事件；证据达阈值重写叙事                                                                                   | ✅                            |
+| Q27 | 冷启动空 + 显式标记 + 首次整合出画像           | `RecallResult.coldStart`、`seedImpression`                                                          | ✅                            |
+| Q28 | L0/L1/L2/L3 各有上界                | L0 按冲突 A 不清理；L1 靠权重与档案而非硬删                                                                         | ◐ 见偏差 7.2                    |
+| Q29 | 2000 软 / 3000 硬 / 20 条 / 主观 25% | `render.ts`                                                                                        | ✅                            |
+| Q30 | 主观层连续未命中只降配额                    | —                                                                                                  | ○ 需要跨轮命中率状态                  |
+| Q31 | 按对话密度动态调                        | —                                                                                                  | ○ 同上                         |
+| Q32 | 逐路改写 + Top-1 归一化                | `sim / topRaw`；无改写                                                                                 | ◐ 无指代补全                      |
+| Q33 | 混合格式 + 硬上限                      | 表格行 + 自然语言 + 3000 硬顶                                                                               | ✅                            |
+| Q34 | 写入检测 + 检索兜底 + 显式纠错 `disputed`   | supersede；`detectConflict`；`correctionMarker` → weight 0.3                                         | ✅                            |
+| Q35 | 规则 + 模型、下钻最多一次                  | 证据薄时 `drill` 一次                                                                                    | ✅                            |
+| Q36 | 日记 ≤3/天无下限；印象增量；叙事证据触发          | `diaryPerDay`、`upsertImpression`、`narrativeEvidence`                                               | ✅                            |
+| Q37 | 在线失败降级                          | 在线不做模型调用，全部确定性；注入缺失不标                                                                              | ◐ 无「标注缺失」文案                  |
+| Q38 | 条目级独立 + 重试 + 死信                 | 段级 try/catch、`jobs`、`dailyLlmCalls`                                                                | ✅ 重试为记录而非自动重跑                |
+| Q39 | 评估集与指标                          | —                                                                                                  | ○ 以测试集替代【仍开放，§13.3】          |
+| Q40 | 查看 + 导出 + 双档删除                  | `memory_profile` / `export` / `forget`                                                             | ✅                            |
+| Q41 | 真删除 + 合规留存                      | `pending_delete` → 到期 `purgeFact`；审计只留操作                                                           | ✅                            |
+| Q42 | 部署级选择，7 天                       | `roles.pendingDeleteDays`                                                                          | ✅                            |
+| Q43 | 7 天冷静期 + 立即彻底删除                 | 默认软删，`permanent` 立即删                                                                               | ✅                            |
+| Q44 | 指令性文本隔离                         | `preferences` 表，只在相关 query 检索                                                                      | ✅                            |
+| Q45 | 与对话历史去重、4000 上限                 | —                                                                                                  | ○ 由宿主管理历史，记忆块独立              |
+| Q46 | 固定域 + 受控细标签                     | 10 域 + other；`domain` 参与去重与边界                                                                      | ✅ 细标签未实现                     |
+| Q47 | SDK 内核 + 薄适配 + 可分离整合            | `src/engine` 不含 dsh                                                                                | ✅                            |
+| Q48 | 第一个宿主 dsh                       | 本包                                                                                                 | ✅                            |
+| Q49 | 完整系统起步，不与现有插件共存                 | 独立 store、独立工具名                                                                                     | ✅                            |
+| Q50 | 耦合只在触发与写入时序                     | 五个接缝，见 §2                                                                                          | ✅                            |
+| Q51 | 采样 + trace，脱敏，14 天              | `traces` 记召回、`audit` 记变更，14 天清理                                                                    | ◐ 无采样开关                      |
+| Q52 | 用户时区，写入时解释                      | `config.timezone` → 会话时区 → `Intl`                                                                  | ✅                            |
+| Q53 | 主模型 + 轻量辅助 embedding            | —                                                                                                  | ○ 改用 FTS5 二元分词               |
+| Q54 | 两次调用 + 每日上限 + 规则兜底              | 抽取 + 判断；`usage_daily`；规则兜底                                                                         | ✅                            |
+| Q55 | 纯规则降级，L0 继续积累                   | 规则抽取 + BM25 + 衰减                                                                                   | ✅ 无「48h 补跑」                  |
+| Q56 | 乘法强度 + 加法调节 + 软失效乘 + 地板         | `finalScore`                                                                                       | ✅                            |
+| Q57 | 会话隔离、用户互斥、去重窗口 5 分钟             | 会话隔离；单进程 SQLite；写回按维护周期批量                                                                          | ◐ 无跨进程互斥                     |
+| Q58 | 双份备份、RPO/RTO                    | —                                                                                                  | ○ 被 Q59 取代                   |
+| Q59 | 备份责任交给用户                        | 文档说明；不做对象存储                                                                                        | ✅                            |
+| Q60 | 主人部署，朋友/路人是数据主体                 | 身份表 + 认领                                                                                           | ✅                            |
+| Q61 | 主人审核 + 挂起 + 合并                  | `claimIdentity` / `reviewClaim`                                                                    | ✅                            |
+| Q62 | 朋友删除 L0+L1，保留印象                 | 冷静期到期 `purgeExpiredL0` + `factsDueForPurge`；印象不动                                                   | ✅                            |
+| Q63 | 日记 0.3 权重计入叙事证据                 | **最终决定不加权**：证据 = 事件条数（`narrativeEvidence()` 只查 `events`）；日记改为导出到 `diary/` 目录供人直接读                  | ✅ 已定稿（v0.2.9，§13.1）          |
+| Q64 | 语气分离注入 + 离线评估                   | **收口为「读记忆时看得见当时的语气」**：事件行尾按 `valence`/`arousal` 标一句 `（语气偏冲）`，记忆块与 `memory_search` 都带；不做独立通道、不做离线评估 | ✅ 已收口（v0.2.9，§13.2）          |
+| Q65 | 人设前、记忆块后、事实前主观后                 | section 顺序 10 / 900 / 930；块内顺序                                                                     | ✅                            |
+| Q66 | 冲突裁决                            | 用户确认：协议规则 + 确定性检测 + 0.85                                                                           | ✅                            |
+|     |                                 |                                                                                                    |                              |
+
 
 表里的 `○` 项，以及 `◐` 项里尚未补齐的部分，不在这张表里展开，统一汇总在 **§13 未解决问题清单**（含原因、代价、若要做的切入点）。
 
@@ -253,13 +255,13 @@ score    = (sim·strength + emotion + layerPenalty) × expiry × conflict × wei
 
 ### 7.1 不实现的部分
 
-| 项 | 原因 | 若要做 |
-|---|---|---|
-| 相册（Q22） | 需要图像相似度与二进制存储，和当前"纯文本 SQLite"边界冲突 | 独立表 + 独立通道，不改现有 schema |
-| 主观层动态配额（Q30/Q31） | 需要跨轮命中率状态机 | 在 sessions 表加 `recall_misses` |
-| 对话历史去重（Q45） | 历史归宿主，插件看不到完整的请求拼装 | 依赖 `systemPrompt` 的装配上下文 |
-| embedding（Q53） | 引入密钥、网络、模型版本管理 | 把 `retrieval` 的 similarity 换成向量，其余不变 |
-| 评估集（Q39） | 没有真实对话语料 | 先积累 trace，再建离线评测【仍开放，§13.3】 |
+| 项                | 原因                                | 若要做                                  |
+| ---------------- | --------------------------------- | ------------------------------------ |
+| 相册（Q22）          | 需要图像相似度与二进制存储，和当前"纯文本 SQLite"边界冲突 | 独立表 + 独立通道，不改现有 schema               |
+| 主观层动态配额（Q30/Q31） | 需要跨轮命中率状态机                        | 在 sessions 表加 `recall_misses`        |
+| 对话历史去重（Q45）      | 历史归宿主，插件看不到完整的请求拼装                | 依赖 `systemPrompt` 的装配上下文             |
+| embedding（Q53）   | 引入密钥、网络、模型版本管理                    | 把 `retrieval` 的 similarity 换成向量，其余不变 |
+| 评估集（Q39）         | 没有真实对话语料                          | 先积累 trace，再建离线评测【仍开放，§13.3】          |
 
 ### 7.2 实现方式不同
 
@@ -267,11 +269,9 @@ score    = (sim·strength + emotion + layerPenalty) × expiry × conflict × wei
 - **Q2 的 48 小时兜底**：5 分钟空闲触发严格更早，因此没有单独的 48h 任务。
 
   原设计里 48h 兜底负责一种情况：会话一直有活动、累计 token 始终没到 `triggerTokens`，于是迟迟不整合，最多拖 48 小时。替代它的是 `sessionsDue()` 的第二个条件：`last_active_at <= now - idleMinutes * 60000`（`idleMinutes` 默认 5）。判定条件是
-
   ```
   EXISTS(未整合的 l0) AND (token_count >= triggerTokens OR 空闲 >= 5 分钟)
   ```
-
   即：**只要还有一条没整合的消息，会话停 5 分钟就到期**，跟累计了多少 token 无关。所以「拖到 48 小时」这个窗口在正常运行时不会出现——最坏延迟是 5 分钟 + 一个 tick 周期（`maintenanceIntervalSeconds` 默认 60 秒），即便宿主从不发消息也一样，因为 tick 是独立定时器。
 
   两个机制本来共用同一个 tick（`dueSessions()` → `consolidate()`），所以 48h 兜底能覆盖的场景 5 分钟空闲触发都覆盖，且严格更早；而进程关闭时两者都不跑，替换没有引入新的漏点。真正需要担心的不是时间窗，而是 `dailyLlmCalls` 用尽后整合被推迟到次日配额重置——这一点两种触发方式同样受制，已在 `report.degraded` 里体现。
@@ -284,13 +284,13 @@ score    = (sim·strength + emotion + layerPenalty) × expiry × conflict × wei
 
 `npm test`（vitest）共 56 个用例：
 
-| 文件 | 覆盖 |
-|---|---|
-| `decay.test.ts` | 双曲衰减手算值、S 增长与上限、软失效、地板 |
-| `text.test.ts` | CJK 二元分词、FTS 表达式、Jaccard/containment、预算估算、脱敏、分类器 |
-| `time.test.ts` | 时区换算、跨日、月末、TTL（明天/三天后/显式日期/下周一） |
-| `engine.test.ts` | 捕获→整合→召回全链路、脱敏、幂等、合并/取代/遗忘、冲突检测、人设权限、路人隔离与清理、访问回写、导出 |
-| `tools.test.ts` | 六个工具的真实执行路径（含导出 JSON） |
+| 文件                | 覆盖                                                                   |
+| ----------------- | -------------------------------------------------------------------- |
+| `decay.test.ts`   | 双曲衰减手算值、S 增长与上限、软失效、地板                                               |
+| `text.test.ts`    | CJK 二元分词、FTS 表达式、Jaccard/containment、预算估算、脱敏、分类器                     |
+| `time.test.ts`    | 时区换算、跨日、月末、TTL（明天/三天后/显式日期/下周一）                                      |
+| `engine.test.ts`  | 捕获→整合→召回全链路、脱敏、幂等、合并/取代/遗忘、冲突检测、人设权限、路人隔离与清理、访问回写、导出                 |
+| `tools.test.ts`   | 六个工具的真实执行路径（含导出 JSON）                                                |
 | `adapter.test.ts` | 在真实 `ToolRuntime` + `SystemPrompt` 服务上加载插件、注册六个工具、协议 section 可见、卸载干净 |
 
 `npm run typecheck` 与 `npm run build` 均通过；`lib/index.js` 的运行时依赖只有 `@deepseek-ai/schemastery`、peer 的 `@deepseek-ai/dsh-tools` 和 Node 内置模块。
@@ -305,7 +305,7 @@ score    = (sim·strength + emotion + layerPenalty) × expiry × conflict × wei
 
 记忆块是渲染出来的摘要：`retrieval.maxItems=20`、事件最多 4 段，超限静默丢弃（`SECTION.more` 从未被引用）。长对话的完整叙事——用户当时的犹豫、助手当时的分析——在库里（`l0`），在 prompt 里却只有一个标题和一个摘要，且**没有任何读取入口**。
 
-> 【v0.2.0 已解决】「没有读取入口」这一半由 §9.3 的钩子索引修掉：正文可按编号取回，且 `memory_search` 有一条不受钩子数限制的 FTS5 通道。
+> 【v0.2.0 已解决】「没有读取入口」这一半由 §9.3 的钩子索引修掉：正文可按编号取回，且 `memory_search` 有一条不受钩子数限制的 FTS5 通道。  
 > 未解决的只剩前半句：**记忆块自身仍然超限即丢弃**，`SECTION.more` 这句「还有 {n} 条更早的记忆」至今没被渲染过——它是死常量，不是兜底。见 §13.5。
 
 ### 9.2 关键观察
@@ -335,11 +335,11 @@ score    = (sim·strength + emotion + layerPenalty) × expiry × conflict × wei
 
 分三层看，只有第二层是真正会撞到的墙：
 
-| 层 | 上限 | 现实约束 |
-|---|---|---|
-| 编号空间 | `E`/`F`/`D` 取自 SQLite `INTEGER PRIMARY KEY AUTOINCREMENT`，2⁶³−1；`parseRef` 走 `Number()`，可用到 2⁵³−1 ≈ 9.0×10¹⁵ | 按每天 100 条事件算，够用 2.4×10¹¹ 年。不是瓶颈 |
-| 驻留钩子 | `index.maxHooks` 16 条 + `index.hooksBudgetTokens` 300 双约束，先到先停 | 实测满员约 59 token/轮，单条 label 被 `clip` 到 16–22 字 |
-| 候选池 | 事件 `LIMIT 300`、事实 `LIMIT 150`（`pinned` 或 `salience ≥ 0.55`）、整理版 `LIMIT 60` | **最紧的一层**：合计 511 条封顶 |
+| 层    | 上限                                                                                                           | 现实约束                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| 编号空间 | `E`/`F`/`D` 取自 SQLite `INTEGER PRIMARY KEY AUTOINCREMENT`，2⁶³−1；`parseRef` 走 `Number()`，可用到 2⁵³−1 ≈ 9.0×10¹⁵ | 按每天 100 条事件算，够用 2.4×10¹¹ 年。不是瓶颈              |
+| 驻留钩子 | `index.maxHooks` 16 条 + `index.hooksBudgetTokens` 300 双约束，先到先停                                               | 实测满员约 59 token/轮，单条 label 被 `clip` 到 16–22 字 |
+| 候选池  | 事件 `LIMIT 300`、事实 `LIMIT 150`（`pinned` 或 `salience ≥ 0.55`）、整理版 `LIMIT 60`                                   | **最紧的一层**：合计 511 条封顶                         |
 
 候选池是硬截断，不是分页：一旦某个事件落到第 301 条以外，`rebuild` 根本不查它，`loom_hooks` 里也就没有行，`memory_index search` 同样搜不到。模型没有理由去 `memory_expand` 一个看不见的编号。【v0.2.3 的原始判断，v0.2.4 已修正——见下一段】
 
@@ -355,12 +355,12 @@ memory_expand("E1") 读出 93 字正文  ✓
 
 ### 9.7 上限的实测代价（v0.2.4）
 
-| 项 | 数字 |
-|---|---|
-| 取回成本 vs 钩子数 | 0.040 ms（16 条）/ 0.037 ms（64 条）——**完全解耦** |
-| 索引块每轮 | 16 条 124 token；24 条 175；32 条 224；64 条 422；128 条 818 |
-| `rebuild`，候选池封顶 300 | 恒定约 118 ms（100/300/1000/3000 事件下都一样） |
-| `rebuild`，去掉 events 上限 | 300 事件 121 ms；1000 事件 390 ms；**3000 事件 1248 ms** |
+| 项                      | 数字                                                  |
+| ---------------------- | --------------------------------------------------- |
+| 取回成本 vs 钩子数            | 0.040 ms（16 条）/ 0.037 ms（64 条）——**完全解耦**            |
+| 索引块每轮                  | 16 条 124 token；24 条 175；32 条 224；64 条 422；128 条 818 |
+| `rebuild`，候选池封顶 300    | 恒定约 118 ms（100/300/1000/3000 事件下都一样）                |
+| `rebuild`，去掉 events 上限 | 300 事件 121 ms；1000 事件 390 ms；**3000 事件 1248 ms**    |
 
 两条由此固定下来的判断：
 
@@ -423,10 +423,10 @@ memory_expand("E1") 读出 93 字正文  ✓
 
 ### 11.3 效果（5 万字正文，v0.2.2 时的 2600 预算）
 
-| 正文 | 修复前 | 修复后 |
-|---|---|---|
+| 正文                | 修复前                 | 修复后                   |
+| ----------------- | ------------------- | --------------------- |
 | 英文日志（12500 token） | 14 页，每页仅 1000 token | **5 页，每页 2600 token** |
-| 中文叙事（29845 token） | 14 页 | **12 页** |
+| 中文叙事（29845 token） | 14 页                | **12 页**              |
 
 中文场景变化小（本来就在 0.65 附近），说明修正只吃掉了浪费，没有改变中文的既有行为。
 
@@ -434,10 +434,10 @@ memory_expand("E1") 读出 93 字正文  ✓
 
 `expandBudgetTokens` 的默认值从 2600 提到 4000。四档实测（5 万字正文，累积输入含分页重发）：
 
-| 正文 | 2600 | 4000 | 8000 | 12000 |
-|---|---|---|---|---|
+| 正文               | 2600          | 4000             | 8000        | 12000       |
+| ---------------- | ------------- | ---------------- | ----------- | ----------- |
 | 中文叙事 29845 token | 12 页 / 189.6k | **8 页 / 128.3k** | 4 页 / 71.8k | 3 页 / 53.8k |
-| 英文日志 12500 token | 5 页 / 37.3k | **4 页 / 26.5k** | 2 页 / 17.1k | 2 页 / 13.1k |
+| 英文日志 12500 token | 5 页 / 37.3k   | **4 页 / 26.5k**  | 2 页 / 17.1k | 2 页 / 13.1k |
 
 取 4000 的理由：相对 2600 往返减三分之一、总消耗降到 68%；再往上边际收益递减（8000 只再减一半页数，12000 对英文已无差别），但单页占用的上下文翻倍，正在使用的材料更容易被挤出去。剩下的大头是分页重发的平方成本，改预算只能缓解，根治得靠「按需定位」而不是整篇顺序读——留作扩展点。
 
@@ -470,6 +470,7 @@ schema 里有 `enabled: z.boolean().default(true)`，README 配置表也写着�
 中文场景下几乎不会暴露——汉字都在 BMP 内，一个码元一个字符。但只要正文里有 emoji（聊天记录里非常常见），每页边界都可能坏一个字符。
 
 修法：新增 `safeCut()`，切点落在高代理之后时退一格；初始 `take` 与收缩循环都过这个函数。实测（31 个汉字 + 200 个 emoji，budget 13）：修复前 10 页里 8 页以孤立高代理结尾，修复后 0 页。
+
 
 ### 12.3 `memory_pack` 能挂到不存在的编号
 
@@ -550,30 +551,30 @@ extraction.fromModel
 
 ### 13.4 因缺语料/缺真实负载而挂起的其余项
 
-| 项 | 现状 | 挂起原因 |
-|---|---|---|
-| Q22 相册 | 未实现 | 需要图像相似度与二进制存储，与「纯文本 SQLite」边界冲突 |
-| Q30/Q31 主观层动态配额 | 固定 25% | 需要跨轮命中率状态机 |
-| Q45 对话历史去重 | 未做 `in_conversation` 标记 | 历史拼装归宿主，插件看不到完整请求 |
-| Q53 embedding | 用 CJK 二元分词 + FTS5 | 引入密钥、网络、模型版本管理 |
-| Q32 指代补全 | 无改写 | 需要一次额外模型调用 |
-| Q37 缺失标注 | 无「标注缺失」文案 | 在线路径全确定性，没有「缺什么」的信号可标 |
-| Q46 细标签 | 只有 10 个固定域 | 受控词表要靠真实语料收敛 |
-| Q51 采样开关 | 全量记 trace，14 天清理 | 无压力场景，采样是过早优化 |
-| Q57 跨进程互斥 | 单进程 SQLite + 5s `busy_timeout` | 单机单进程是当前部署形态 |
-| 分层驻留 / label 结构化 | 未做（§9.7 末尾三条方向） | 会动摇「驻留集逐字一致」这条不变量，需重新设计验证 |
+| 项                | 现状                             | 挂起原因                            |
+| ---------------- | ------------------------------ | ------------------------------- |
+| Q22 相册           | 未实现                            | 需要图像相似度与二进制存储，与「纯文本 SQLite」边界冲突 |
+| Q30/Q31 主观层动态配额  | 固定 25%                         | 需要跨轮命中率状态机                      |
+| Q45 对话历史去重       | 未做 `in_conversation` 标记        | 历史拼装归宿主，插件看不到完整请求               |
+| Q53 embedding    | 用 CJK 二元分词 + FTS5              | 引入密钥、网络、模型版本管理                  |
+| Q32 指代补全         | 无改写                            | 需要一次额外模型调用                      |
+| Q37 缺失标注         | 无「标注缺失」文案                      | 在线路径全确定性，没有「缺什么」的信号可标           |
+| Q46 细标签          | 只有 10 个固定域                     | 受控词表要靠真实语料收敛                    |
+| Q51 采样开关         | 全量记 trace，14 天清理               | 无压力场景，采样是过早优化                   |
+| Q57 跨进程互斥        | 单进程 SQLite + 5s `busy_timeout` | 单机单进程是当前部署形态                    |
+| 分层驻留 / label 结构化 | 未做（§9.7 末尾三条方向）                | 会动摇「驻留集逐字一致」这条不变量，需重新设计验证       |
 
 ### 13.5 已知缺陷（决定不修）
 
-| 缺陷 | 影响 | 为什么不修 |
-|---|---|---|
-| `body()` 的链接查询不带 `identity_id` 过滤 | 跨身份撞号时可能读到别人的「存活状态」，但正文按 id 查，不会返回别人的内容 | 撞号只在多身份同库且 id 恰好相同时出现；为它加复合索引不值 |
-| `memory_pack` 覆盖同一编号留下的旧 `loom_docs` | 无链接孤儿，占体积 | `memory_index gc` 显式兜底，候选又是 `LIMIT 60`，会自然淘汰 |
-| `render()` 的 token 统计少算换行 | 每行少约 0.25 token，满员实测 188/300 | 余量足够，且低估比高估安全 |
-| `SECTION.more` 是死常量 | 「还有 {n} 条更早的记忆」永远不会被渲染 | 要补它得先决定「多一行提示」值不值那些 token |
-| `diary.weight` 是死列 | **→ 已删除（v0.2.9）。** 写入的是 `emotion.salience`，`recentDiary()` 也映射出来了，但下游无人读——渲染用固定 `base: .7`，评分用固定 `similarity: .35`。同表的 `mood` 同样是死列（永远写空串），一并删掉表定义 | 结论见 §13.1：既然日记不计权，这一列就没有存在的意义；留着只会让下一个人以为它在起作用 |
-| `defaultZones()` 不随 `locale` | 英文环境下人设卡仍是中文预设 | 是内容而非机制，等有英文用户反馈再改 |
-| 候选池 511 条硬顶 | 更早的事不会被「自然想起」，但仍可 `memory_search` 命中 | 见 §9.7：扩池会带来 1.25 秒同步阻塞，收益被 16 条上限吃掉 |
+| 缺陷                                   | 影响                                                                                                                                                 | 为什么不修                                          |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `body()` 的链接查询不带 `identity_id` 过滤    | 跨身份撞号时可能读到别人的「存活状态」，但正文按 id 查，不会返回别人的内容                                                                                                            | 撞号只在多身份同库且 id 恰好相同时出现；为它加复合索引不值                |
+| `memory_pack` 覆盖同一编号留下的旧 `loom_docs` | 无链接孤儿，占体积                                                                                                                                          | `memory_index gc` 显式兜底，候选又是 `LIMIT 60`，会自然淘汰   |
+| `render()` 的 token 统计少算换行            | 每行少约 0.25 token，满员实测 188/300                                                                                                                       | 余量足够，且低估比高估安全                                  |
+| `SECTION.more` 是死常量                  | 「还有 {n} 条更早的记忆」永远不会被渲染                                                                                                                             | 要补它得先决定「多一行提示」值不值那些 token                      |
+| `diary.weight` 是死列                   | **→ 已删除（v0.2.9）。** 写入的是 `emotion.salience`，`recentDiary()` 也映射出来了，但下游无人读——渲染用固定 `base: .7`，评分用固定 `similarity: .35`。同表的 `mood` 同样是死列（永远写空串），一并删掉表定义 | 结论见 §13.1：既然日记不计权，这一列就没有存在的意义；留着只会让下一个人以为它在起作用 |
+| `defaultZones()` 不随 `locale`         | 英文环境下人设卡仍是中文预设                                                                                                                                     | 是内容而非机制，等有英文用户反馈再改                             |
+| 候选池 511 条硬顶                          | 更早的事不会被「自然想起」，但仍可 `memory_search` 命中                                                                                                               | 见 §9.7：扩池会带来 1.25 秒同步阻塞，收益被 16 条上限吃掉           |
 
 ### 13.6 一句话总结
 
@@ -589,11 +590,11 @@ extraction.fromModel
 
 真机上的一次安装（`dsh plugin --profile desktop add ...tgz`）留下了三行时间戳：
 
-| 事实 | 时刻 |
-| --- | --- |
-| 宿主主进程启动 | 19:58:15 |
+| 事实                                                     | 时刻       |
+| ------------------------------------------------------ | -------- |
+| 宿主主进程启动                                                | 19:58:15 |
 | `dsh plugin add` 返回，profile 的 `package.json` 被 pnpm 改写 | 20:05:09 |
-| `loom.db` 被创建（`apply()` 执行） | 20:05:11 |
+| `loom.db` 被创建（`apply()` 执行）                            | 20:05:11 |
 
 所有宿主主进程的 `StartTime` 至今仍是 19:58:15，会话 id 也没变。所以建库的是那个六分钟前就启动的进程。
 
@@ -611,12 +612,12 @@ extraction.fromModel
 
 插件向 prompt 注入的内容分两类：
 
-| 内容 | 注册方式 | 依赖 `agent/created` |
-| --- | --- | --- |
-| 记忆使用约定、索引约定 | `ctx.systemPrompt.section`（全局） | 否 |
-| 人设卡 | `agent.ctx.systemPrompt.section` | **是** |
-| 钩子索引块 | `agent.ctx.systemPrompt.context` | **是** |
-| 记忆块 | `agent.ctx.systemPrompt.context` | **是** |
+| 内容          | 注册方式                             | 依赖 `agent/created` |
+| ----------- | -------------------------------- | ------------------ |
+| 记忆使用约定、索引约定 | `ctx.systemPrompt.section`（全局）   | 否                  |
+| 人设卡         | `agent.ctx.systemPrompt.section` | **是**              |
+| 钩子索引块       | `agent.ctx.systemPrompt.context` | **是**              |
+| 记忆块         | `agent.ctx.systemPrompt.context` | **是**              |
 
 热加载时当前会话的 agent **早就存在**，`agent/created` 不会再来一次，于是后三块一块都挂不上。而装机时最容易确认的两样——9 个工具、两个全局协议块——恰好都不依赖这个事件，所以看上去「一切正常」。
 
@@ -677,11 +678,11 @@ driver kick()        while (await this.turn()) 包在 try/catch(_error) 里 → 
 
 ### 15.2 会抛的三块
 
-| 块 | 注册 | 失败面 |
-| --- | --- | --- |
-| `memory-loom:persona` | `systemPrompt.section` | `engine.personaFor()` 读库 |
-| `memory-loom:hooks` | `systemPrompt.context` | 每轮 `prepare()` + 可能 `rebuild()` + `render()` |
-| `memory-loom:memory` | `systemPrompt.context` | `engine.recallFor()` 读库并渲染 |
+| 块                     | 注册                     | 失败面                                          |
+| --------------------- | ---------------------- | -------------------------------------------- |
+| `memory-loom:persona` | `systemPrompt.section` | `engine.personaFor()` 读库                     |
+| `memory-loom:hooks`   | `systemPrompt.context` | 每轮 `prepare()` + 可能 `rebuild()` + `render()` |
+| `memory-loom:memory`  | `systemPrompt.context` | `engine.recallFor()` 读库并渲染                   |
 
 三块共用同一个连接，所以「库不可用」这一种原因就会同时打穿三块。
 
@@ -702,6 +703,7 @@ const guardPrompt = (label, fn) => () => {
 - `renderContextSections()` → `filter((section) => section.text.length > 0)`
 
 所以空块既不会留下空标题，也不会在上下文里多出分隔符。代价是这一轮真的没有记忆；收益是对话继续。
+
 
 ### 15.4 固定它的探针
 
@@ -737,13 +739,13 @@ const guardPrompt = (label, fn) => () => {
 
 ### 16.4 memory_doctor 的设计约束
 
-| 约束 | 原因 |
-| --- | --- |
-| 每个探测独立 try/catch | 库彻底打不开时，报告本身必须还能产出；否则工具层再抛一次，用户拿到的是错误而不是原因 |
-| 不用 `actorOf()` | 它内部调 `engine.identityOf()`，会读库——正是坏掉的那条路径。改用 `sessionOf(exec)` 只取 id |
-| 只读 | 诊断工具不该改动状态。修库是人的决定（备份、重建、清进程） |
-| 时间格式有兜底 | `engine.timezoneOf()` 在引擎关闭后也抛，`when()` 退回本机时区格式化 |
-| 报告分 ✓ / ✗ / · 三档 | `·` 是信息（WAL 不存在、暂无召回记录），不参与"发现 N 处问题"计数，避免把正常状态报成故障 |
+| 约束               | 原因                                                                   |
+| ---------------- | -------------------------------------------------------------------- |
+| 每个探测独立 try/catch | 库彻底打不开时，报告本身必须还能产出；否则工具层再抛一次，用户拿到的是错误而不是原因                           |
+| 不用 `actorOf()`   | 它内部调 `engine.identityOf()`，会读库——正是坏掉的那条路径。改用 `sessionOf(exec)` 只取 id |
+| 只读               | 诊断工具不该改动状态。修库是人的决定（备份、重建、清进程）                                        |
+| 时间格式有兜底          | `engine.timezoneOf()` 在引擎关闭后也抛，`when()` 退回本机时区格式化                    |
+| 报告分 ✓ / ✗ / · 三档 | `·` 是信息（WAL 不存在、暂无召回记录），不参与"发现 N 处问题"计数，避免把正常状态报成故障                  |
 
 ### 16.5 固定的行为
 
@@ -824,13 +826,13 @@ if (used + blockUsed + cost > cap) break;   // used 是全局累加
 
 此前 README 把备份写成用户责任，实际上没人会做，而 `loom.db` 是单文件明文无副本。v0.2.15 起：
 
-| 决策 | 原因 |
-| --- | --- |
-| 用 `VACUUM INTO` 而不是拷文件 | 拷贝 `loom.db` 会漏掉 WAL 里的写入；`VACUUM INTO` 通过活动连接生成一致副本，产物自包含 |
-| 按 `everyHours` 而不是「每日首份」 | 每日首份会拍到刚开机那一刻的空数据；按间隔拍能覆盖当天的实际内容 |
-| 内容为空时不拍 | 新装第一天会连拍 7 份空库，把名额占满 |
-| 放在库同级 `backups/` | 同一个隐私边界内，不额外暴露路径；但**同盘**，所以挡不住硬盘故障——文档写明 |
-| 失败只 warn | 快照失败不该影响对话，与 `guardPrompt` 的取舍一致 |
+| 决策                       | 原因                                                         |
+| ------------------------ | ---------------------------------------------------------- |
+| 用 `VACUUM INTO` 而不是拷文件   | 拷贝 `loom.db` 会漏掉 WAL 里的写入；`VACUUM INTO` 通过活动连接生成一致副本，产物自包含 |
+| 按 `everyHours` 而不是「每日首份」 | 每日首份会拍到刚开机那一刻的空数据；按间隔拍能覆盖当天的实际内容                           |
+| 内容为空时不拍                  | 新装第一天会连拍 7 份空库，把名额占满                                       |
+| 放在库同级 `backups/`         | 同一个隐私边界内，不额外暴露路径；但**同盘**，所以挡不住硬盘故障——文档写明                   |
+| 失败只 warn                 | 快照失败不该影响对话，与 `guardPrompt` 的取舍一致                           |
 
 ### 17.4 溯源标注
 
@@ -850,14 +852,14 @@ if (used + blockUsed + cost > cap) break;   // used 是全局累加
 
 新增 6 个探针，共 52 项断言：
 
-| 探针 | 项数 | 固定什么 |
-| --- | --- | --- |
-| `probe-compaction` | 12 | 压缩前后三块 prompt 不减少、WAL 被 checkpoint、压缩后自检仍正常 |
-| `probe-preference-resident` | 7 | 偏好常驻、开关可关、OR 匹配、超上限时关键词仍可召回 |
-| `probe-diary-budget` | 5 | 事实撑满预算时印象与日记仍在 |
-| `probe-backup` | 8 | 快照生成、内容完整、按份数清理、无 `-wal` 依赖 |
-| `probe-fact-source` | 6 | 「待确认」只打在低置信推断上、协议有解释 |
-| `probe-handoff` | 14 | 五格齐全、规矩原文、下一步留空、调用不改记忆 |
+| 探针                          | 项数 | 固定什么                                        |
+| --------------------------- | -- | ------------------------------------------- |
+| `probe-compaction`          | 12 | 压缩前后三块 prompt 不减少、WAL 被 checkpoint、压缩后自检仍正常 |
+| `probe-preference-resident` | 7  | 偏好常驻、开关可关、OR 匹配、超上限时关键词仍可召回                 |
+| `probe-diary-budget`        | 5  | 事实撑满预算时印象与日记仍在                              |
+| `probe-backup`              | 8  | 快照生成、内容完整、按份数清理、无 `-wal` 依赖                 |
+| `probe-fact-source`         | 6  | 「待确认」只打在低置信推断上、协议有解释                        |
+| `probe-handoff`             | 14 | 五格齐全、规矩原文、下一步留空、调用不改记忆                      |
 
 未覆盖：快照在真实 DSH 里的首次触发时机（探针用 10 秒间隔模拟）；偏好常驻对长会话 token 预算的实际影响（每条约 15–40 token，默认 3 条）。
 
@@ -879,12 +881,12 @@ if (used + blockUsed + cost > cap) break;   // used 是全局累加
 
 这是本机真实库（`~/.dsh/memory/loom.db`，4 块 / 1 会话 / 4 条事实）：
 
-| 标题（改前） | 摘要长度 | 来源 |
-| --- | --- | --- |
-| `财务·那么，装了这个插件，需不需要考虑上下文崩…` | 30 字 | 规则兜底 |
-| `用户想让AI主动追问` | 114 字 | 模型生成 |
-| `技术·插件我更新了，你去更新一下` | 13 字 | 规则兜底 |
-| `技术·也就是说，已经撞上了？` | 30 字 | 规则兜底 |
+| 标题（改前）                     | 摘要长度  | 来源   |
+| -------------------------- | ----- | ---- |
+| `财务·那么，装了这个插件，需不需要考虑上下文崩…` | 30 字  | 规则兜底 |
+| `用户想让AI主动追问`               | 114 字 | 模型生成 |
+| `技术·插件我更新了，你去更新一下`         | 13 字  | 规则兜底 |
+| `技术·也就是说，已经撞上了？`           | 30 字  | 规则兜底 |
 
 模型路径唯一的那块，标题和摘要都能用；规则兜底的三块是「领域·原句」，摘要就是原句。这种块当项目节点用不了：标题里没有对象名，同一批块的领域前缀完全一样。
 
@@ -916,20 +918,20 @@ if (used + blockUsed + cost > cap) break;   // used 是全局累加
 
 新增探针 `probe-episodes`，18 项断言：
 
-| 断言 | 固定什么 |
-| --- | --- |
-| 空库不抛错并说明原因 | 新装时调它不会炸 |
-| 列出事件块 / 有汇总行 / 按时间倒序 | 清单的形状 |
-| 无「领域·」标题前缀 | 标题不再带零信息前缀 |
-| 标题带项目名 `loom` / `Blender` | 两块各自认得出自己的对象 |
-| 每块带 `E` 编号 | 能接 `memory_expand` |
-| 至少一块带关联事实数 | `event_facts` 计数出得来 |
-| 标题不被摘要重复 | 去重生效 |
-| `query` 命中相关块 / 排除无关块 | 关键词过滤 |
-| `days` 过滤更早的块 | 时间过滤 |
-| `limit` 生效 | 条数上限 |
-| 跨会话块合并列出 / 上个会话的块仍在 | 换会话不丢 |
-| 调用不改记忆块 / 自检仍报库连接正常 | 只读 |
+| 断言                        | 固定什么                |
+| ------------------------- | ------------------- |
+| 空库不抛错并说明原因                | 新装时调它不会炸            |
+| 列出事件块 / 有汇总行 / 按时间倒序      | 清单的形状               |
+| 无「领域·」标题前缀                | 标题不再带零信息前缀          |
+| 标题带项目名 `loom` / `Blender` | 两块各自认得出自己的对象        |
+| 每块带 `E` 编号                | 能接 `memory_expand`  |
+| 至少一块带关联事实数                | `event_facts` 计数出得来 |
+| 标题不被摘要重复                  | 去重生效                |
+| `query` 命中相关块 / 排除无关块     | 关键词过滤               |
+| `days` 过滤更早的块             | 时间过滤                |
+| `limit` 生效                | 条数上限                |
+| 跨会话块合并列出 / 上个会话的块仍在       | 换会话不丢               |
+| 调用不改记忆块 / 自检仍报库连接正常       | 只读                  |
 
 ### 18.7 模型路径的一行都没跑过
 
@@ -966,11 +968,11 @@ if (used + blockUsed + cost > cap) break;   // used 是全局累加
 
 ### 19.2 三个约束，缺一个就会污染记忆块
 
-| 约束 | 配置 | 默认 | 不做会怎样 |
-| --- | --- | --- | --- |
-| 只在严格命中太少时跑 | `relaxBelow` | 3 | 长句用 OR 命中全库，事实区被噪声填满，把真正重要的挤出去——正是 0.2.15 修过的「预算被占满」那一类 |
-| 放宽命中按分数打折 | `relaxPenalty` | 0.55 | 一条勉强沾边的记忆可能排在严格命中前面，模型先看到错的 |
-| 与查询共享太少就丢 | `relaxMinOverlap` | 0.25 | 一个高频二字组（「的」「我们」）就能把整库拖进来 |
+| 约束         | 配置                | 默认   | 不做会怎样                                                   |
+| ---------- | ----------------- | ---- | ------------------------------------------------------- |
+| 只在严格命中太少时跑 | `relaxBelow`      | 3    | 长句用 OR 命中全库，事实区被噪声填满，把真正重要的挤出去——正是 0.2.15 修过的「预算被占满」那一类 |
+| 放宽命中按分数打折  | `relaxPenalty`    | 0.55 | 一条勉强沾边的记忆可能排在严格命中前面，模型先看到错的                             |
+| 与查询共享太少就丢  | `relaxMinOverlap` | 0.25 | 一个高频二字组（「的」「我们」）就能把整库拖进来                                |
 
 守卫用 `containment(query, text)`：查询的二字组里有多大比例出现在候选文本中。实测那个反例很典型：
 
@@ -992,6 +994,7 @@ if (used + blockUsed + cost > cap) break;   // used 是全局累加
 
 模型自己检索时用的是 `Engine.searchFor()`，不是 `recall()`。它此前同样是严格 AND，于是出现了一个很怪的状态：用户问「你还记得我不吃香菜这件事吗」，模型主动去查，查回「没有找到相关记忆」。现在两处共用一个 `collect(expr, factor, guard)` 收集器，规则一致。
 
+
 ### 19.5 这不是向量召回，别自我安慰
 
 修掉的是「字面有一半重合但被 AND 判死」——日常对话里最常见的一类失败。字面完全不重合的近义表达（「香菜」对「芫荽」、换语言、口语改写）仍然找不回来，那需要 embedding。这一版没有引入模型依赖、网络请求或额外进程，索引仍是本地 SQLite；代价是这类残留在，好处是零依赖离线这条卖点也还在。
@@ -1000,10 +1003,10 @@ if (used + blockUsed + cost > cap) break;   // used 是全局累加
 
 `probe-recall-relax`，12 项，其中三对是 A/B 对照（同一份数据、只改一个开关），因为「放宽生效」和「本来就通」在结果上长得一样：
 
-| 对照 | 打开 | 关闭 |
-| --- | --- | --- |
-| 用自己的话问能否找回 | 命中 | 找不到 |
-| 守卫调高到 0.9 后 | 找不到 | — |
+| 对照            | 打开    | 关闭  |
+| ------------- | ----- | --- |
+| 用自己的话问能否找回    | 命中    | 找不到 |
+| 守卫调高到 0.9 后   | 找不到   | —   |
 | prompt 路径的记忆块 | 出现该事实 | 不出现 |
 
 最后那一对最关键，也是最容易写成假绿的一条：记忆块对最近 8 条事实本来就有兜底，只要目标事实还在最近 8 条里，开不开放宽都会出现。所以那一组单独起两个实例、**关掉整合**（整合会从用户那句话里抽出新事实，新事实必然排在最前），并在目标事实之后写九条填充把它挤出最近 8 条。第一版没做这两件事，断言通过了但是假的——这是本次唯一一次「测试骗了自己」。
@@ -1032,12 +1035,12 @@ if (used + blockUsed + cost > cap) break;   // used 是全局累加
 
 任何一次模型调用都排在组装之后。所以「用模型想的词去查」最早也只能是「这一轮先查错，下一轮再查对」。四个能放模型的位置，只有三个能用：
 
-| 位置 | 时机 | 能放模型吗 | 代价 |
-| --- | --- | --- | --- |
-| 整合时 | 本轮结束，异步 | 能，模型本来就在跑 | 几乎为零 |
-| 注入路径里 | 组装 prompt，同步 | 不能：要嵌套一次模型调用 | 首字延迟，每 step 都跑 |
-| 工具调用内 | 模型已开口 | 已经是这样（`memory_search`） | 一次往返，且已经晚了 |
-| `turn-stopping` 之后 | 异步 | 能，但只能猜下一轮 | 会过期 |
+| 位置                 | 时机           | 能放模型吗                  | 代价             |
+| ------------------ | ------------ | ---------------------- | -------------- |
+| 整合时                | 本轮结束，异步      | 能，模型本来就在跑              | 几乎为零           |
+| 注入路径里              | 组装 prompt，同步 | 不能：要嵌套一次模型调用           | 首字延迟，每 step 都跑 |
+| 工具调用内              | 模型已开口        | 已经是这样（`memory_search`） | 一次往返，且已经晚了     |
+| `turn-stopping` 之后 | 异步           | 能，但只能猜下一轮              | 会过期            |
 
 结论：把想词这件事挪到**写**的时候。整合那一步模型本来就在读这段对话、产出标题和摘要，多要一个字段不多一次调用。
 
@@ -1059,11 +1062,11 @@ tokens = indexText(`${text} ${tags.join(" ")} ${aliases}`)
 
 守卫改成 `containment(query, rowText(fact))`（`rowText` = 正文 + 别名）之后，同一批题变成 6/6。三臂对照（`probe-aliases`，同一份语料）：
 
-| 问法 | A 无别名 | B 别名+放宽 | C 别名+仅严格 |
-| --- | --- | --- | --- |
-| 别名原文（短问） | 1/6 | 6/6 | 6/6 |
-| 换说法（别名覆盖） | 0/6 | 6/6 | 0/6 |
-| 第四种说法（没覆盖） | 0/6 | 0/6 | 0/6 |
+| 问法         | A 无别名 | B 别名+放宽 | C 别名+仅严格 |
+| ---------- | ----- | ------- | -------- |
+| 别名原文（短问）   | 1/6   | 6/6     | 6/6      |
+| 换说法（别名覆盖）  | 0/6   | 6/6     | 0/6      |
+| 第四种说法（没覆盖） | 0/6   | 0/6     | 0/6      |
 
 C 臂是必须的。没有它，B 的胜利会被记成「别名让 AND 变容易」，而归因错一处，下次就会照着错的理由继续加别名、继续失望。真实结论是：**别名只在两种情形下起作用——短问（别名本身就是 query）和放宽那一遍（守卫认别名）**。中间那句人话，严格匹配永远过不去。
 
@@ -1259,11 +1262,11 @@ const selected = [
 
 「过几天」怎么写？三个选项：
 
-| 写法 | 问题 |
-| --- | --- |
+| 写法              | 问题                           |
+| --------------- | ---------------------------- |
 | 某个具体日期（比如 +5 天） | 编造。它会以「事实」的形态留在库里，再也没人知道那是猜的 |
-| `null` | 丢掉了用户确实说过的东西 |
-| 一个区间 + `fuzzy` | 保留了「他说过，但没说准」这件事本身 |
+| `null`          | 丢掉了用户确实说过的东西                 |
+| 一个区间 + `fuzzy`  | 保留了「他说过，但没说准」这件事本身           |
 
 选了第三种：2–10 天，渲染成 `约 11-04~11-12`。这个范围是照着用户的原话定的（他们把「过几天」理解成 2–10 天），不是从语料里统计出来的——写在这里是为了让人知道它是可以争的。
 
@@ -1279,12 +1282,12 @@ const selected = [
 
 现在 `reconcileDue` 把新期限和已存期限比一次，四种结果：
 
-| 结果 | 含义 | 处理 |
-| --- | --- | --- |
-| `fill` | 库里没有期限 | 直接落 |
-| `same` | 同一个区间 | 不动 |
+| 结果       | 含义       | 处理            |
+| -------- | -------- | ------------- |
+| `fill`   | 库里没有期限   | 直接落           |
+| `same`   | 同一个区间    | 不动            |
 | `refine` | 新区间在旧区间里 | 记成待确认，措辞「说细到」 |
-| `shift` | 新区间在旧区间外 | 记成待确认，措辞「改到」 |
+| `shift`  | 新区间在旧区间外 | 记成待确认，措辞「改到」  |
 
 `refine` 也要问，这一条是想清楚之后才定的。直觉上「下周一」比「下周」更精确，接受它似乎是安全的；但旧区间有可能才是他真正说的那个（「下周之内」），而新的一句可能来自另一件事（比如另一个下周一）。**只要覆盖的是用户给过的日期，就值得问一句**；问一次的成本是一个来回，记错的成本是他在错误的那天被提醒。
 
@@ -1301,6 +1304,7 @@ const due = parseDue(text, now, this.config.timezone);      // 默认 "" → 回
 // 渲染
 renderMemoryBlock(result, config, this.timezoneOf(sessionId)) // 会话已记录本机时区 → 上海
 ```
+
 
 过去 `expires_at` 只显示一个日期，8 小时偏移落在「日界」里，看不出来。区间一来，起点按 UTC 日界算、终点按上海日界算，一个点变成两天，错误立刻可见。
 
@@ -1340,13 +1344,17 @@ v0.2.20 把期限做成了区间，形状是对的，覆盖是窄的。窄在哪
 
 ### 23.2 三个看着有答案的错
 
-**`下下周五` 早一周。** 双写前缀里包含单写前缀，`下(?:个)?(?:周|星期|礼拜)([一二三四五六日天])` 在 `下下周五` 的第二个字符处就匹配上了，于是返回 `下周五`。
+|                                           |    |                                                 |
+| ----------------------------------------- | -- | ----------------------------------------------- |
+| **`下下周五` 早一周。** 双写前缀里包含单写前缀，\`下(?:个)?(?:周 | 星期 | 礼拜)([一二三四五六日天])`在`下下周五`的第二个字符处就匹配上了，于是返回`下周五\`。 |
 
 改的时候还踩了一次同样的坑：`下下周五` 的偏移写成 `14 - weekdayOf + target - 1`，结果还是 11-19。原因是「下一个周一」的偏移本身是 `8 - weekday`，那个 `-1` 已经在里面了；照抄单写的公式等于减了两次。单写是 `8 - wd + target - 1`，双写必须是 `14 - wd + target`。
 
 **`下个月五号` 塌成整月。** `12月5号` 有 `11月9日` 那条绝对日期规则接，`下个月五号` 没有——`月` 前面是个 `个`，不是数字。于是落到 `下个月` 那条，整月窗口返回，`五号` 被丢掉。用户说的是「12 月 5 日」，系统记的是「12 月之内」，提醒会提前四周。
 
-现在有一条专门的规则：`(下下个月|下个月|这个月|本月) + 数字 + 日/号`。它会验算落地日期——`2月30号` 转出来是 3 月 2 日，日期不符就整个不作数，而不是顺手给一个 3 月的日子。
+|                    |     |     |                                                                             |
+| ------------------ | --- | --- | --------------------------------------------------------------------------- |
+| 现在有一条专门的规则：\`(下下个月 | 下个月 | 这个月 | 本月) + 数字 + 日/号`。它会验算落地日期——`2月30号\` 转出来是 3 月 2 日，日期不符就整个不作数，而不是顺手给一个 3 月的日子。 |
 
 **`周天` / `周日` / `星期天` 不认。** 只认带 `这` / `下` 前缀的写法。口语里最常说的恰好是不带前缀的那个。
 
@@ -1442,10 +1450,10 @@ v0.2.20 的期限窗口做对了形状，v0.2.21 把说法认全了，但都建�
 
 「只问一次」写起来有三种做法，选了最土的那种：
 
-| 做法 | 问题 |
-| --- | --- |
-| 每轮都问 | 一条被无视的计划会变成每天一次的提醒，用户会开始无视整个块 |
-| 问过就删 | 删掉的是用户亲口说过的事，而「他不知道」正是最有用的状态 |
+| 做法        | 问题                                |
+| --------- | --------------------------------- |
+| 每轮都问      | 一条被无视的计划会变成每天一次的提醒，用户会开始无视整个块     |
+| 问过就删      | 删掉的是用户亲口说过的事，而「他不知道」正是最有用的状态      |
 | 标记问过、留在块里 | 采纳：`nudged_at` 记一次，之后这行恢复成没有问句的样子 |
 
 `nudged_at` 在 `recall()` 里花掉，不在渲染里。原因很实际：prompt 块是懒求值的，同一轮里可能被求值不止一次（`recallFor` 有按会话和 query 的缓存，第二次直接返回缓存字符串）。在渲染里打标记，等于让「这轮问了」取决于渲染被调用几次。
@@ -1469,11 +1477,11 @@ v0.2.20 的期限窗口做对了形状，v0.2.21 把说法认全了，但都建�
 
 `memory_resolve` 拒绝三种输入：
 
-| 输入 | 回答 | 为什么 |
-| --- | --- | --- |
-| 不是 `kind=plan` | 「不是计划，不用这样收尾」 | 否则任何事实都能被贴上结论 |
+| 输入                | 回答                 | 为什么              |
+| ----------------- | ------------------ | ---------------- |
+| 不是 `kind=plan`    | 「不是计划，不用这样收尾」      | 否则任何事实都能被贴上结论    |
 | `resolved_at` 已有值 | 「之前已经收过尾了（办成/没办成）」 | 重复调用会写出两条互相矛盾的结论 |
-| id 不存在 / 无权 | 明说 | 静默成功是最难查的一类 bug |
+| id 不存在 / 无权       | 明说                 | 静默成功是最难查的一类 bug  |
 
 它也不修改计划行本身：`resolved_at`、`outcome` 只让这条计划退出计划区（`openPlans` / `overduePlans` 都加了 `resolved_at IS NULL`），原文留在库里，`memory_search` 仍然找得到。
 
@@ -1506,10 +1514,10 @@ v0.2.22 的写法是：计划过期，块里出现一句问话；问过就记 `n
 
 v0.2.23 只保留第二个含义，第一个交给 `resolved_at`：
 
-| 字段 | 回答的问题 | 谁写 |
-| --- | --- | --- |
-| `resolved_at` | 有没有结果 | 模型听到回答后调 `memory_resolve` |
-| `nudged_at` | 上次问是什么时候 | `recall()` |
+| 字段            | 回答的问题    | 谁写                        |
+| ------------- | -------- | ------------------------- |
+| `resolved_at` | 有没有结果    | 模型听到回答后调 `memory_resolve` |
+| `nudged_at`   | 上次问是什么时候 | `recall()`                |
 
 判断一条计划该不该问，于是只有一条式子：
 
@@ -1617,6 +1625,7 @@ v0.2.22 里这个代价是致命的（白问 = 永久不问）；现在它只是
 
 改法是合并时清掉 `resolved_at` / `outcome` / `nudged_at`，让它重新变成待办。**没做**，因为反向的误判更贵：用户只是在复述「我上周交过了」，也被读成「又要做一次」，于是一件已经完成的事重新变成待办、过期、被问。而 `judgement.relation === "duplicate"` 这个信号里没有「还没做」的信息——用它来决定复活，等于让「说法相似」承担「事情状态」的判断。宁可留一个静默的窄缝，也不要一个会反复追问的错误。
 
+
 ### 26.6 这次检查的边界
 
 没有真模型、没有长周期、没有并发、没有真实宿主的定时器。这四项里的任何一项都可能推翻上面的结论——尤其是「提示词被遵守」这一条，七版里所有靠模型写的东西（别名、时间短语原样抄、收尾调用）都还只是设计意图。
@@ -1629,11 +1638,11 @@ v0.2.22 里这个代价是致命的（白问 = 永久不问）；现在它只是
 
 ### 27.1 证据链
 
-| 检查 | 结果 | 这个值只可能来自 |
-| --- | --- | --- |
-| 工具数 | 9 个 | 0.2.12（0.2.16 是 12，0.2.23 是 14） |
-| `memory_doctor` | `unknown tool` | 该工具 0.2.16 才有 |
-| `PRAGMA user_version` | 1 | 0.2.12 与 0.2.16 的 `SCHEMA_VERSION` 都是 1；0.2.23 是 4 |
+| 检查                    | 结果             | 这个值只可能来自                                           |
+| --------------------- | -------------- | -------------------------------------------------- |
+| 工具数                   | 9 个            | 0.2.12（0.2.16 是 12，0.2.23 是 14）                    |
+| `memory_doctor`       | `unknown tool` | 该工具 0.2.16 才有                                      |
+| `PRAGMA user_version` | 1              | 0.2.12 与 0.2.16 的 `SCHEMA_VERSION` 都是 1；0.2.23 是 4 |
 
 三条互相独立，却指向同一个版本。注意「有 recall trace」不能当证据——recall 早在 0.2.12 就有了，把「有记忆在读」当成「新代码在跑」，是这次一开始误判的原因。
 
@@ -1657,11 +1666,11 @@ v0.2.22 里这个代价是致命的（白问 = 永久不问）；现在它只是
 
 三个字段各有分工，缺一不可：
 
-| 字段 | 来源 | 能证明什么 |
-| --- | --- | --- |
-| 运行版本 | `lib/index.js` 写死的 `BUILD_VERSION` | 此刻执行的是哪一版代码 |
-| 库 schema | `PRAGMA user_version` | 迁移跑过没有 |
-| 上次由谁打开 | `meta["runtime.previousVersion"]` | 这次升级真的发生过，不是原地不动 |
+| 字段       | 来源                                 | 能证明什么            |
+| -------- | ---------------------------------- | ---------------- |
+| 运行版本     | `lib/index.js` 写死的 `BUILD_VERSION` | 此刻执行的是哪一版代码      |
+| 库 schema | `PRAGMA user_version`              | 迁移跑过没有           |
+| 上次由谁打开   | `meta["runtime.previousVersion"]`  | 这次升级真的发生过，不是原地不动 |
 
 为什么 `BUILD_VERSION` 必须写死、不能读 `package.json`：`package.json` 回答的是「磁盘上装的是哪一版」，而这里要问的是「正在执行的是哪一版」。§27.2 那个情形恰恰是两者不一致——文件已经换了，跑的还是旧代码；此时读 `package.json` 会拿到新版本号，于是这一行**跑着旧代码却报新版本**，从诊断依据变成伪证。写死的常量永远描述「这段代码自己」，而这正是要问的问题。
 
@@ -1689,10 +1698,10 @@ v0.2.22 里这个代价是致命的（白问 = 永久不问）；现在它只是
 
 两处，都是把一个已经存在的未来事实写到用户/模型看得见的地方：
 
-| 位置 | 之前 | 之后 |
-| --- | --- | --- |
-| 计划行 | `- [11-13 · 截止] 下周五去体检` | `- [11-13 · 截止] 下周五去体检（到期后我会问一句）` |
-| `memory_doctor` | 只有 `· 计划与矛盾  N 条计划（…）` | 多一行 `· 下一步  「下周五去体检」2026-11-13 23:59 到期，之后第一次对话就会问，没回答就每 2 天再问一次` |
+| 位置              | 之前                      | 之后                                                                |
+| --------------- | ----------------------- | ----------------------------------------------------------------- |
+| 计划行             | `- [11-13 · 截止] 下周五去体检` | `- [11-13 · 截止] 下周五去体检（到期后我会问一句）`                                 |
+| `memory_doctor` | 只有 `· 计划与矛盾  N 条计划（…）`  | 多一行 `· 下一步  「下周五去体检」2026-11-13 23:59 到期，之后第一次对话就会问，没回答就每 2 天再问一次` |
 
 三个刻意的边界：
 
@@ -1709,6 +1718,7 @@ v0.2.22 里这个代价是致命的（白问 = 永久不问）；现在它只是
 设计上只有一条硬约束：**演示必须调用生产代码，不许为演示另写一套渲染。** 具体是 `writeFact` 负责解析「下周五」、`recall` 的计划通道负责挑行、`renderMemoryBlock` 负责拼成行、`resolve` 负责收尾写新事实。理由是演示的唯一价值在于「你看到的这行字，就是以后真会出现在提示词里的那行」；只要有一处是照着印象手写的，演示就从证据退化成插图，而且会随时间悄悄漂移——真正的代码改了，插图不会跟着改。
 
 假时钟来自 `MemoryEngine` 本来就有的 `now` 选项（harness 之外没人用过它）。拨一次 `cursor`，整个引擎的「现在」跟着走，不需要真的等十天。
+
 
 边界同样是刻意的：
 
@@ -1791,8 +1801,12 @@ v0.2.22 里这个代价是致命的（白问 = 永久不问）；现在它只是
 
 #### 收尾入口要同时说两个结局
 
+|  |  |  |  |
+| --- | --- | --- | --- |
 未到期的行只给 `outcome=done|cancelled`，不给 `missed`：日子还没到，谈不上「没办成」。到期之后那行本来就带催问句，催问那句给三个（`done|missed|cancelled`）——刚过期、用户回一句「算了不去了」是很正常的一格，见 `probe-plan-outcome.mjs` 的 [4c]。
 
+|  |  |
+| --- | --- |
 代价是每行多约 8 token（`outcome=done|cancelled` 比 `done=true` 长）。计划区额度没变，理由和 §28.5 末尾那条一样：要扩就得先有真实数据。
 
 #### 连带修掉的两个洞
