@@ -61,12 +61,16 @@ function headIn(line) {
 }
 
 // `days` 相对写入那天：负数在过去（前天），正数在未来（明天）。
+// 「上周三」不能用 days 表示：它是命名星期，落在上一个自然周的周三，和写入日
+// 是周几有关。写成 days:-7 只在写入日恰好是周三时成立——fixture 的写入日是
+// 「今天减 90 天」，日期一漂这个断言就假失败（2026-11-04 跑出来 2026-08-06，
+// 周四，上周三 = 07-29，而 -7 给出 07-30）。
 const CASES = [
   { text: '用户前天把明信片寄出去了，收件人是他在成都的姐姐', needle: '明信片', word: '前天', days: -2 },
   { text: '用户明天要去医院复查心脏，挂的是上午的号', needle: '要去医院复查', word: '明天', days: 1 },
   { text: '用户昨天开始吃降压药，早上一片', needle: '降压药', word: '昨天', days: -1 },
   { text: '用户大后天要交房租', needle: '要交房租', word: '大后天', days: 3 },
-  { text: '用户上周三跟房东谈过续租，租金涨了两百', needle: '房东', word: '上周三', days: -7 }
+  { text: '用户上周三跟房东谈过续租，租金涨了两百', needle: '房东', word: '上周三', weeks: -1, weekday: 3 }
 ];
 const NOISE = [
   { text: '用户说先天和后天都重要，习惯是后天养成的', stamp: '' },
@@ -92,13 +96,22 @@ async function seed(name, rows) {
 }
 
 console.log('[1] 三个月后，记忆块里说的是哪天');
+/** ISO 星期（周一=1），与 `shift` 同一套 2026 年口径。 */
+function isoOf(mmdd) {
+  const [month, day] = mmdd.split('-').map(Number);
+  const weekday = new Date(Date.UTC(2026, month - 1, day)).getUTCDay();
+  return weekday === 0 ? 7 : weekday;
+}
+
 const main = await seed('main', CASES);
 const block = main.loom.memoryBlock(SESSION);
 for (const line of block.split('\n').filter((row) => row.startsWith('- '))) console.log(`      ${line}`);
 for (const item of CASES) {
   const line = lineWith(block, item.needle);
   const head = headIn(line);
-  const want = head === '' ? '' : shift(head, -item.days);
+  const want = head === '' ? '' : item.weeks === undefined
+    ? shift(head, -item.days)
+    : shift(head, isoOf(head) - 1 - item.weeks * 7 - (item.weekday - 1));
   check(`「${item.word}」补出写入那天的日期`, stampIn(line) === want && want !== '', `行首 ${head || '?'}，补注 ${stampIn(line) || '无'}，应为 ${want || '?'}`);
 }
 
