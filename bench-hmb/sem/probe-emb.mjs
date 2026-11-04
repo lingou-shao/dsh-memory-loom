@@ -1,0 +1,13 @@
+import { pipeline, env } from '@huggingface/transformers';
+env.allowRemoteModels = false;
+env.allowLocalModels = true;
+env.localModelPath = 'bench-hmb/sem/models';
+env.useBrowserCache = false;
+const t0 = Date.now();
+const ex = await pipeline('feature-extraction', 'Xenova/bge-small-zh-v1.5', { dtype: 'q8' });
+console.log('loaded in', Date.now() - t0, 'ms');
+const out = await ex(['猎户项目的依赖名是 redis', '缓存模块的有效期秒数', '今天中午吃了牛肉面', '猎户服务的依赖名当前是什么值？'], { pooling: 'cls', normalize: true });
+console.log('dims', out.dims);
+const [a, b, c, q] = out.tolist();
+const cos = (x, y) => x.reduce((s, v, i) => s + v * y[i], 0);
+console.log('q↔依赖名', cos(q, a).toFixed(4), '｜q↔有效期', cos(q, b).toFixed(4), '｜q↔牛肉面', cos(q, c).toFixed(4));
