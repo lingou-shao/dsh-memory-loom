@@ -115,7 +115,7 @@ DSH 的工具名全局唯一，重名会让整个插件加载失败——所以�
 
 | 贴什么 | 例子 | 特点 |
 | --- | --- | --- |
-| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.29/dsh-memory-loom-0.2.29.tgz` | 版本钉死，装到的就是这一版 |
+| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.30/dsh-memory-loom-0.2.30.tgz` | 版本钉死，装到的就是这一版 |
 | **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，能拿到最新提交，但每次装到的内容会变 |
 | **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
@@ -455,6 +455,34 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | v0.2.28 | 规矩也得有门，可门牌号会撞 | `memory_search` 终于搜 `preferences`（此前第四条规矩起没有任何工具够得着）；编号分 `#P`，`memory_expand` 能取回原文；`memory_forget` 加 `ref`，不再靠数字猜表；顺带补上规矩的第一个出口——此前没有任何代码写过 `active = 0`，「以后别管那条规矩了」等于没听见 |
 
 | v0.2.29 | 抽出来的那条事实，原文里到底有没有 | 抽取时多要一句「原文摘抄」，写入前在本地比一次子串（不调第二次模型）；三个结局分开：对得上 / 对不上 / 没给摘抄就不判；只记录不拦截；`memory_doctor` 报「引用核对」 |
+| v0.2.30 | 模型配额用完了，得说一声 | 降级原因从「一个布尔」拆成「配额 / 调用失败 / 判断层」三类，写进 audit、医生报出今日用量、日志每天提醒一次；规则路径补上「属性、配置、命名」三类陈述，没有模型时技术记录从 2 条事实涨到 404 条；外部基准的读数与结论归档为已知边界，不为它改索引粒度 |
+
+### v0.2.30：配额用完了，得说一声
+
+`consolidation.dailyLlmCalls` 默认 200 次。用完之后 `canUseLlm` 返回 false，抽取退回规则路径——**这一步没有任何提示**。原话照样入库，只是抽不出压缩后的事实，于是「它好像不太记得了」这种印象要过几周才形成，而那时候已经没法归因了。
+
+真正让这件事变糟的是另一面：代码里其实**算过**降级。`report.degraded` 在三个地方被赋值，然后没有人读它——`engine.consolidate()` 的返回值在维护循环里直接被丢掉，audit 只记了 `model: true/false`，医生一个字都不提。一个被计算、被传递、最后被丢弃的信号，比完全没有这个信号更危险：看代码的人会以为这件事已经被照顾到了。
+
+所以这次不是「加一个告警」，是把这条链路接通，同时把那个布尔拆开——配额用尽、模型调用失败、判断层降级，这三件事的处置完全不同，一个是明天零点自己好，一个要换模型，一个根本不用管：
+
+```
+degradeReasons: { budget: 2, model: 0, judge: 1 }
+  → audit 每次整合都写（即使 false 也写，「这天到底有没有走模型」需要否定面）
+  → memory_doctor 报「今日已用 2/200」以及最近一次整合的降级原因
+  → 日志每天第一次踩线时提醒一句，之后不再刷屏
+```
+
+医生那一行还顺带纠正了一个容易误报的地方：**判断层走规则不算「出问题」**。事实已经抽出来了，只是四条判断改由规则给出，用户什么都不用做。把它和「配额用尽」混在同一句里，一次完全正常的整合也会看起来像事故。
+
+另外两个洞一起补了。
+
+**规则路径只认「谁做了什么」，不认「什么是什么」。** `looksWorthKeeping` 的词表全是用户画像、经历、计划、要求，对「依赖名调整为 badger」「超时设成 30 秒」这类句子完全无感。在同一份 270 段的技术记录上量，整份语料只抽出 **2 条**事实——而这些记录里几乎每段都有一句带确切值的话。补上「属性、配置、命名」三类陈述之后是 **404 条**，其中 95% 落在带值的那句上，噪音只有 2 条。
+
+刻意没收「数字 ＋ 单位」这个形状。「等了 3 分钟」「花了 200 块」在闲聊里太密，收进来就是把噪音写进记忆，而记忆里的噪音比没记更贵——它在此后每一次检索里都参与排序。
+
+**还有一件试过又退回去的事，记在注释里了。** 事件摘要原本取「首句 ＋ 最长句」，我一度认为「最长＝信息最多」这个前提不成立，改成优先挑带数字或英文标识符的句子。中间指标很漂亮：关键句进摘要从 26.6% 升到 82.6%。但同一批题上的检索反而腰斩，20.3% 掉到 8.7%，叙事文本上最明显——故事里的数字是「三天后」「第十年」，而情节点恰恰是最长的那句。判据只在一类文本上成立就不是判据，所以退回按长度选，把测量结论写进了函数的注释，省得下一个人再试一遍。
+
+**外部基准这件事结案了。** 在 [hive-memory-bench](https://github.com/FuRongJun-1999/hive-memory-bench) 的 chain 轨上跑完了 561 道主读数题：整句材料齐备 20.5%，变更链覆盖 73.3%，同口径全文字 BM25 是 82.7% 和 94.1%。差在索引粒度——一条摘要覆盖一个槽位，一段原文覆盖五到十个，而这个差距发生在**检索**这一步，`memory_expand` 补不回来。既然补不回来，为它把索引换回原文就等于换掉「省 token、按需展开」这个前提。详细读数、分离实验、以及为什么语义检索也救不了这张表，写在 [`docs/design.md`](docs/design.md) §35。
 
 ### v0.2.29：校验位，不是重传
 
@@ -1349,7 +1377,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 | 48 小时整合兜底（Q2）       | 用 5 分钟空闲触发替代                          | 到期判定是「有未整合轮次 + 空闲满 5 分钟」，比 48h 严格更早；两者本来跑在同一个 tick 上，替换不引入新漏点 |
 | 单条消息上限              | 默认不限制（`0`），可设 `l0.maxCharsPerMessage` | 0.1.x–0.2.0 曾硬编码 8000 字截断且无提示，现在整条落库 |
 | 正文无语义检索             | 只能顺钩子/编号取回；入口是模型自己调 `memory_expand`，找不到时先用 `memory_search` 按关键词定位 | 设计而非缺陷：想起来的是钩子，细节主动去捞。`memory_search` 走 FTS5，不受 16 条钩子限制，所以「不在索引里」不等于「找不回来」 |
-| 钩子密度受整合质量约束         | 规则模式下技术对话抽不出事实、事件标题近似重复               | 索引层已做同名折叠缓解；根治需提升整合层                 |
+| 钩子密度受整合质量约束         | 事件标题仍可能近似重复               | 规则路径自 v0.2.30 起认得出属性/配置句（270 段技术记录实测 2 → 404 条事实），但标题仍取首句，同话题的多段会重名；根治需提升整合层 |
 | 日记不计权（Q63，v0.2.9 已定稿） | 日记不参与排序、也不计入叙事证据；改为每天导出一个 Markdown 到 `diary/` 目录 | 日记是写给助手自己的，加权重不会让人更愿意看它；给一个能点开的入口比调系数有用 |
 | 语气标注未做离线评估（Q64，v0.2.9 已收口） | 事件行尾按 `valence`/`arousal` 标一句「（语气偏冲）」，不做独立注入通道 | 用户的实际要求只是「读记忆时看得见当时的语气」；阈值映射已够用，对照实验需真模型 + 语料 + judge，见 §13.2 |
 | 评估集与指标（Q39）          | 用仓库内自建场景与探针替代                    | 它衡量机制正确性（指针没断、分页无损、删除会级联），不衡量记忆质量，见 §13.3 |
@@ -1358,12 +1386,13 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 | 规矩的可检索性（v0.2.28）    | `memory_search` 能搜 `preferences` 了，但仍是词法匹配 | 「我有什么忌口」与「我不吃香菜」不共享任何二字组，照样搜不到；补上的是「有门」，不是「懂意思」。常驻区仍然只带最近 `retrieval.residentPreferences`（默认 3）条，更早的靠搜索或关键词召回，见 §33 |
 | 删除不覆盖偏好（v0.2.28 发现） | `memory_identity erase` 清的是对话与事实，`preferences` 的行留着；能逐条收回，不能批量清 | `requestDeletion` 从来没碰过这张表——规矩在实现里一直是只写不删。这次补了单条出口（`memory_forget(ref="P…")`），批量清理要连带改 `erase` 的两条分支和它的回话，留到下一个版本，见 §33.8 |
 | 抽取的引用校验（v0.2.29）   | 只记录，不拦截；规矩那一类没有校验位 | 模型如果把「我」改写成「用户」再抄进摘抄，会和真编造一样被判 false，两者在字符串层面分不开。按 false 丢事实会把真事扔掉，而漏记比多记难发现，所以先攒数据；`preferences` 没有 `evidence` 列，v0.2.29 之前写的事实也没有，都不进分母，见 §34 |
+| 外部基准上的相对位置（v0.2.30） | 纯词法检索加摘要索引，在「逐版本穷举」类任务上明显弱于全文字 BM25：整句材料齐备 20.5% 对 82.7%，变更链覆盖 73.3% 对 94.1% | 索引粒度是设计选择，不是实现缺陷——一条摘要覆盖一个槽位，一段原文覆盖五到十个。取 6 条时一边拿到 300 字、一边拿到 2,300 字，而这个差距在检索这一步，`memory_expand` 补不回来。为追平把索引换回原文，等于换掉「省 token、按需展开」这个前提，所以不做。接入方式、读数、试过又回退的方案见 §35 |
 
 ---
 
 ## 10. 目录
 
-本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（10645 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
+本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（10802 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
 
 ```
 lib/
@@ -1414,36 +1443,36 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
 cordis.patch.yml      bundle patch：把插件挂进 profile
 ```
 
-`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 24 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 10645 行：
+`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 24 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 10802 行：
 
-| region | 行（v0.2.29 工作树） | 职责 |
+| region | 行（v0.2.30 工作树） | 职责 |
 | --- | --- | --- |
 | `src/engine/time.ts` | 7–557 | 时区、`day_key`、本地日界、短日期格式 |
 | `src/engine/types.ts` | 558–690 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
 | `src/config.ts` | 691–964 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
 | `src/engine/db.ts` | 965–1362 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
-| `src/engine/text.ts` | 1363–1847 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度、摘抄比对（v0.2.29） |
-| `src/engine/store.ts` | 1848–2825 | `MemoryStore`：L0–L3 与主观层的全部 SQL，含偏好的读、收回与删除（v0.2.28） |
-| `src/engine/decay.ts` | 2826–2895 | 衰减与时效权重 |
-| `src/engine/domain.ts` | 2896–3201 | 10 个固定域的判定与中英标签 |
-| `src/engine/salience.ts` | 3202–3393 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
-| `src/engine/segment.ts` | 3394–3616 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
-| `src/engine/consolidate.ts` | 3617–4487 | 整合：抽取、事件标题与摘要、写事实与事件（含出处校验位，v0.2.29）、叙事证据 |
-| `src/engine/roles.ts` | 4488–4682 | 主人 / 朋友 / 路人权限梯度与可见性 |
-| `src/engine/maintenance.ts` | 4683–4830 | 每轮维护：衰减、去重、trace 清理、路人到期 |
-| `src/engine/backup.ts` | 4831–4889 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
-| `src/engine/render.ts` | 4890–5444 | 记忆块与分页渲染（`SECTION`、预算）、相对时间词补注（v0.2.27） |
-| `src/engine/retrieval.ts` | 5445–6027 | 召回、排序融合、冲突检测、分页切片 |
-| `src/engine/persona.ts` | 6028–6204 | 人设卡五区、自我叙述、对他的印象 |
-| `src/engine/diary-mirror.ts` | 6205–6264 | 日记 Markdown 镜像（v0.2.9） |
-| `src/engine/index.ts` | 6265–7153 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析、`searchFor` 三路收集（含偏好，v0.2.28） |
-| `src/engine/intake.ts` | 7154–8238 | 导入别人的记忆：扫描、格式嗅探（SQLite / JSON / JSONL / 文本）、对话表与配置表的排除、预览与落库、批量补别名（v0.2.26） |
-| `src/host.ts` | 8239–8349 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
-| `src/tools.ts` | 8350–9728 | 16 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告、事件块清单、`memory_demo` 的假时钟演示 |
-| `src/index-layer.ts` | 9729–10158 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回（`P` 编号，v0.2.28） |
-| `src/index.ts` | 10159–10645 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
+1363–1864 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度、摘抄比对（v0.2.29）、规则抽取的事实句式表（v0.2.30） |
+| `src/engine/store.ts` | 1865–2842 | `MemoryStore`：L0–L3 与主观层的全部 SQL，含偏好的读、收回与删除（v0.2.28） |
+| `src/engine/decay.ts` | 2843–2912 | 衰减与时效权重 |
+| `src/engine/domain.ts` | 2913–3218 | 10 个固定域的判定与中英标签 |
+| `src/engine/salience.ts` | 3219–3410 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
+| `src/engine/segment.ts` | 3411–3633 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
+| `src/engine/consolidate.ts` | 3634–4581 | 整合：抽取、事件标题与摘要、写事实与事件（含出处校验位，v0.2.29）、降级原因分类（v0.2.30）、叙事证据 |
+| `src/engine/roles.ts` | 4582–4776 | 主人 / 朋友 / 路人权限梯度与可见性 |
+| `src/engine/maintenance.ts` | 4777–4924 | 每轮维护：衰减、去重、trace 清理、路人到期 |
+| `src/engine/backup.ts` | 4925–4983 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
+| `src/engine/render.ts` | 4984–5538 | 记忆块与分页渲染（`SECTION`、预算）、相对时间词补注（v0.2.27） |
+| `src/engine/retrieval.ts` | 5539–6121 | 召回、排序融合、冲突检测、分页切片 |
+| `src/engine/persona.ts` | 6122–6298 | 人设卡五区、自我叙述、对他的印象 |
+| `src/engine/diary-mirror.ts` | 6299–6358 | 日记 Markdown 镜像（v0.2.9） |
+| `src/engine/index.ts` | 6359–7247 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析、`searchFor` 三路收集（含偏好，v0.2.28） |
+| `src/engine/intake.ts` | 7248–8332 | 导入别人的记忆：扫描、格式嗅探（SQLite / JSON / JSONL / 文本）、对话表与配置表的排除、预览与落库、批量补别名（v0.2.26） |
+| `src/host.ts` | 8333–8443 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
+| `src/tools.ts` | 8444–9864 | 16 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告（含模型预算行，v0.2.30）、事件块清单、`memory_demo` 的假时钟演示 |
+| `src/index-layer.ts` | 9865–10294 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回（`P` 编号，v0.2.28） |
+| `src/index.ts` | 10295–10802 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
 
-行号对应**v0.2.29 的工作树**，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
+行号对应**v0.2.30 的工作树**，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 
 `loom-e2e/` 单独跑需要 `npm install`（它复用父目录的 `node_modules`），运行方式：
 
