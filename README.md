@@ -455,7 +455,7 @@ npm test           # 钩子索引自测，30 项（node test/selftest.mjs）
 | v0.2.28 | 规矩也得有门，可门牌号会撞 | `memory_search` 终于搜 `preferences`（此前第四条规矩起没有任何工具够得着）；编号分 `#P`，`memory_expand` 能取回原文；`memory_forget` 加 `ref`，不再靠数字猜表；顺带补上规矩的第一个出口——此前没有任何代码写过 `active = 0`，「以后别管那条规矩了」等于没听见 |
 
 | v0.2.29 | 抽出来的那条事实，原文里到底有没有 | 抽取时多要一句「原文摘抄」，写入前在本地比一次子串（不调第二次模型）；三个结局分开：对得上 / 对不上 / 没给摘抄就不判；只记录不拦截；`memory_doctor` 报「引用核对」 |
-| v0.2.30 | 模型配额用完了，得说一声 | 降级原因从「一个布尔」拆成「配额 / 调用失败 / 判断层」三类，写进 audit、医生报出今日用量、日志每天提醒一次；规则路径补上「属性、配置、命名」三类陈述，没有模型时技术记录从 2 条事实涨到 404 条；外部基准的读数与结论归档为已知边界，不为它改索引粒度 |
+| v0.2.30 | 模型配额用完了，得说一声 | 降级原因从「一个布尔」拆成「配额 / 调用失败 / 判断层」三类，写进 audit、医生报出今日用量、日志每天提醒一次；同一段里抽取和判断都降级时按最严重的那条算一段，不再数成两段；规则路径补上「属性、配置、命名」三类陈述，没有模型时技术记录从 2 条事实涨到 404 条；外部基准的读数与结论归档为已知边界，不为它改索引粒度；摘要选句和门控尺度的做法回去对了文献，结论写在 §36 |
 
 ### v0.2.30：配额用完了，得说一声
 
@@ -1387,12 +1387,14 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 | 删除不覆盖偏好（v0.2.28 发现） | `memory_identity erase` 清的是对话与事实，`preferences` 的行留着；能逐条收回，不能批量清 | `requestDeletion` 从来没碰过这张表——规矩在实现里一直是只写不删。这次补了单条出口（`memory_forget(ref="P…")`），批量清理要连带改 `erase` 的两条分支和它的回话，留到下一个版本，见 §33.8 |
 | 抽取的引用校验（v0.2.29）   | 只记录，不拦截；规矩那一类没有校验位 | 模型如果把「我」改写成「用户」再抄进摘抄，会和真编造一样被判 false，两者在字符串层面分不开。按 false 丢事实会把真事扔掉，而漏记比多记难发现，所以先攒数据；`preferences` 没有 `evidence` 列，v0.2.29 之前写的事实也没有，都不进分母，见 §34 |
 | 外部基准上的相对位置（v0.2.30） | 纯词法检索加摘要索引，在「逐版本穷举」类任务上明显弱于全文字 BM25：整句材料齐备 20.5% 对 82.7%，变更链覆盖 73.3% 对 94.1% | 索引粒度是设计选择，不是实现缺陷——一条摘要覆盖一个槽位，一段原文覆盖五到十个。取 6 条时一边拿到 300 字、一边拿到 2,300 字，而这个差距在检索这一步，`memory_expand` 补不回来。为追平把索引换回原文，等于换掉「省 token、按需展开」这个前提，所以不做。接入方式、读数、试过又回退的方案见 §35 |
+| 摘要就是「首句 + 最长句」（v0.2.30 查证） | 不是语义摘要，没有主题聚类，也不会挑"最重要"的那句 | 试过改成「优先带具体值」：关键句进摘要 26.6% → 82.6%，检索却从 20.3% 掉到 8.7%。查了抽取式摘要这一支的文献才确认这不是没调好——位置是唯一稳定的信号，长度、TF-IDF、专有名词这类特征会把选择引向长而实体密集的句子，且偏法与语料类型强相关。真正该改的是「摘要不该替代原文」（§36.2 的 RAPTOR collapsed tree），不是把摘要写得更聪明。见 §36.1 |
+| 事件层的宽松重跑是二值开关（v0.2.30 发现） | 严格检索命中 1 条就完全不放宽（事实层是 `< 3`），两层刻度还不一致 | 变更类问题恰好是「主体名到处都在、只有版本值不同」，strict 总能蒙对 1–7 条，剩下的版本就永远进不了候选。工业界的做法是 `mm`（minimum should match）这种滑动刻度，不是开关。改它会动排序、牵动几十个探针，留作独立版本，见 §36.3 |
 
 ---
 
 ## 10. 目录
 
-本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（10802 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
+本仓库**以构建产物发布**：没有 `src/`，`lib/index.js` 就是完整可运行的插件本体（10835 行，保留可读格式与注释，不是压缩代码）。原 TypeScript 源工程没有随仓库放出，所以这里**没有构建步骤**——改 `lib/index.js` 就是改源码，改完直接跑测试即生效。代价是没有类型检查、也没法用 `tsc` 做重构；收益是任何人 clone 下来就能改、能跑，不需要理解构建链。
 
 ```
 lib/
@@ -1443,7 +1445,7 @@ loom-e2e/             端到端脚手架（脚本不进 npm 包，只有 REPORT.
 cordis.patch.yml      bundle patch：把插件挂进 profile
 ```
 
-`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 24 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 10802 行：
+`lib/index.js` 里的 `//#region src/xxx.ts` 标记是构建时留下的**模块边界**，等价于源工程的 24 个文件。想改哪一块，搜 region 名就能跳到入口，不必通读 10835 行：
 
 | region | 行（v0.2.30 工作树） | 职责 |
 | --- | --- | --- |
@@ -1451,26 +1453,26 @@ cordis.patch.yml      bundle patch：把插件挂进 profile
 | `src/engine/types.ts` | 558–690 | 领域类型：事实 / 事件 / 日记 / 身份 / 召回项 |
 | `src/config.ts` | 691–964 | `Config`（schemastery）与 `indexDefaults`，默认值唯一来源 |
 | `src/engine/db.ts` | 965–1362 | `openDatabase`、全部建表与迁移、FTS5、WAL 降级 |
-1363–1864 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度、摘抄比对（v0.2.29）、规则抽取的事实句式表（v0.2.30） |
+| `src/engine/text.ts` | 1363–1864 | CJK 分词、`estimateTokens`、`sliceByTokens`、`redactSecrets`、相似度、摘抄比对（v0.2.29）、规则抽取的事实句式表（v0.2.30） |
 | `src/engine/store.ts` | 1865–2842 | `MemoryStore`：L0–L3 与主观层的全部 SQL，含偏好的读、收回与删除（v0.2.28） |
 | `src/engine/decay.ts` | 2843–2912 | 衰减与时效权重 |
 | `src/engine/domain.ts` | 2913–3218 | 10 个固定域的判定与中英标签 |
 | `src/engine/salience.ts` | 3219–3410 | 显著性、情绪 `valence`/`arousal` 的线索词表与打分 |
 | `src/engine/segment.ts` | 3411–3633 | 按时间间隔 / 话题偏移 / 情绪尖峰切段，段内再细切 |
-| `src/engine/consolidate.ts` | 3634–4581 | 整合：抽取、事件标题与摘要、写事实与事件（含出处校验位，v0.2.29）、降级原因分类（v0.2.30）、叙事证据 |
-| `src/engine/roles.ts` | 4582–4776 | 主人 / 朋友 / 路人权限梯度与可见性 |
-| `src/engine/maintenance.ts` | 4777–4924 | 每轮维护：衰减、去重、trace 清理、路人到期 |
-| `src/engine/backup.ts` | 4925–4983 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
-| `src/engine/render.ts` | 4984–5538 | 记忆块与分页渲染（`SECTION`、预算）、相对时间词补注（v0.2.27） |
-| `src/engine/retrieval.ts` | 5539–6121 | 召回、排序融合、冲突检测、分页切片 |
-| `src/engine/persona.ts` | 6122–6298 | 人设卡五区、自我叙述、对他的印象 |
-| `src/engine/diary-mirror.ts` | 6299–6358 | 日记 Markdown 镜像（v0.2.9） |
-| `src/engine/index.ts` | 6359–7247 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析、`searchFor` 三路收集（含偏好，v0.2.28） |
-| `src/engine/intake.ts` | 7248–8332 | 导入别人的记忆：扫描、格式嗅探（SQLite / JSON / JSONL / 文本）、对话表与配置表的排除、预览与落库、批量补别名（v0.2.26） |
-| `src/host.ts` | 8333–8443 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
-| `src/tools.ts` | 8444–9864 | 16 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告（含模型预算行，v0.2.30）、事件块清单、`memory_demo` 的假时钟演示 |
-| `src/index-layer.ts` | 9865–10294 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回（`P` 编号，v0.2.28） |
-| `src/index.ts` | 10295–10802 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
+| `src/engine/consolidate.ts` | 3634–4614 | 整合：抽取、事件标题与摘要、写事实与事件（含出处校验位，v0.2.29）、降级原因分类（v0.2.30）、叙事证据 |
+| `src/engine/roles.ts` | 4615–4809 | 主人 / 朋友 / 路人权限梯度与可见性 |
+| `src/engine/maintenance.ts` | 4810–4957 | 每轮维护：衰减、去重、trace 清理、路人到期 |
+| `src/engine/backup.ts` | 4958–5016 | 每日滚动快照：`VACUUM INTO`、保留份数、旧份清理（v0.2.15） |
+| `src/engine/render.ts` | 5017–5571 | 记忆块与分页渲染（`SECTION`、预算）、相对时间词补注（v0.2.27） |
+| `src/engine/retrieval.ts` | 5572–6154 | 召回、排序融合、冲突检测、分页切片 |
+| `src/engine/persona.ts` | 6155–6331 | 人设卡五区、自我叙述、对他的印象 |
+| `src/engine/diary-mirror.ts` | 6332–6391 | 日记 Markdown 镜像（v0.2.9） |
+| `src/engine/index.ts` | 6392–7280 | `MemoryEngine`：facade、`tick`、`recallFor`、身份解析、`searchFor` 三路收集（含偏好，v0.2.28） |
+| `src/engine/intake.ts` | 7281–8365 | 导入别人的记忆：扫描、格式嗅探（SQLite / JSON / JSONL / 文本）、对话表与配置表的排除、预览与落库、批量补别名（v0.2.26） |
+| `src/host.ts` | 8366–8476 | LLM bridge：`ctx.get("llm")`、provider/model 解析、`LlmUnavailableError` |
+| `src/tools.ts` | 8477–9897 | 16 个 `memory_*` 工具与参数校验、`memory_doctor` 体检报告（含模型预算行，v0.2.30）、事件块清单、`memory_demo` 的假时钟演示 |
+| `src/index-layer.ts` | 9898–10327 | `HookIndex`：三张自建表、驻留快照、`refAlive`、正文取回（`P` 编号，v0.2.28） |
+| `src/index.ts` | 10328–10835 | `apply()`：事件绑定、prompt 注入、工具注册、热加载补挂 |
 
 行号对应**v0.2.30 的工作树**，会随后续改动漂移；**按 region 名定位更稳**。修改方式只有一种：直接改 `lib/index.js` 对应 region，然后跑 `npm test` 与 `loom-e2e/` 里的场景——没有构建步骤，改完即是生效版本。
 
