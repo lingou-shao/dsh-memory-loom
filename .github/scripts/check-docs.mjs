@@ -32,6 +32,15 @@ if (link === null) {
 	if (tagVersion !== version) problems.push(`README 直链的 tag 是 v${tagVersion}，package.json 是 ${version}`);
 	if (fileVersion !== version) problems.push(`README 直链的文件名是 ${fileVersion}.tgz，package.json 是 ${version}`);
 }
+/*
+ * 直链之外还有一处会写死版本：§6.2「三种装法」下面的离线安装示例 `npm install ./dsh-memory-loom-x.y.z.tgz`。
+ * 0.2.32 → 0.2.33 换版时它就被漏掉过一次——直链改了、示例没改，照着抄的人会 404。
+ * 这里扫 README 里出现的每一个包名，任一个不等于当前版本就报。
+ */
+const tarballs = [...readme.matchAll(/dsh-memory-loom-([0-9][0-9A-Za-z.-]*)\.tgz/gu)].map((m) => m[1]);
+for (const seen of new Set(tarballs)) {
+	if (seen !== version) problems.push(`README 里有一处写的是 ${seen}.tgz，package.json 是 ${version}`);
+}
 
 // ── 2. 工具文档覆盖 ───────────────────────────────────────────────────
 const registered = [...read("lib/index.js").matchAll(/name: "(memory_[a-z_]+)"/gu)].map((m) => m[1]);
