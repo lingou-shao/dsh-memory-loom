@@ -109,7 +109,12 @@ try {
   const offPrompt = extractPromptOf(off.llm.calls.find((request) => isExtract(request)));
   check('aliasCount=0 时提示词不提 aliases', !/aliases/u.test(offPrompt), '关闭后提示词干净');
   const offSearch = await off.loom.call('memory_search', { query: '没告诉爸妈' }, 's-alias');
-  check('关闭后别名不生效（A 臂对照）', !offSearch.includes('辞职'), offSearch.split('\n')[0]);
+  /*
+   * 断言的是「别名不生效」这件事，不是「这一段文本里不出现辞职这两个字」。
+   * 原话通道（v0.2.37）会按字面命中那一轮并原样引一句，里面当然有「辞职」——
+   * 那是它应该做的。要验的是派生层那条事实没有被别名捞回来，所以看 F 编号。
+   */
+  check('关闭后别名不生效（A 臂对照）', !/#F\d/u.test(offSearch), offSearch.split('\n')[0]);
 
   // ---- 脏别名 -----------------------------------------------------------
   const dirty = boot((request) => (isExtract(request) ? DIRTY : JUDGE_REPLY));

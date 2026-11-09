@@ -142,11 +142,17 @@ export function createLoom({ dbPath, config = {}, llm, presetTools = [] }) {
    * @param user - user text.
    * @param assistant - assistant text.
    * @param options.gapMs - virtual gap before this turn.
+   * @param options.at - absolute virtual time for this turn, in epoch ms.
+   *
+   * `at` 是为「时间题」加的。默认起点是 `Date.now() - 3 * DAY`（模拟一个开了三天的
+   * 会话），这对「几小时前」这类断言够用，但把语料按真实时间轴灌进来时，整条时间线
+   * 会整体错位三天——而 chat-memory-bench 里一半的题问的正是「那天是几号」。
+   * 这时时间线本身错了三天，量出来的就不是插件的问题。给了 `at` 就跳过推算。
    */
   async function turn_(sessionId, user, assistant, options = {}) {
     agentOf(sessionId);
     const start = clocks.get(sessionId) ?? Date.now() - 3 * DAY;
-    const at = start + (options.gapMs ?? 2 * MIN);
+    const at = options.at ?? start + (options.gapMs ?? 2 * MIN);
     clocks.set(sessionId, at);
     const turn = (turns.get(sessionId) ?? 0) + 1;
     turns.set(sessionId, turn);

@@ -94,3 +94,6 @@ desktop.ini
 # ─────────────────────────────────────────────
 loom-e2e/tmp-*
 loom-e2e/backups/
+
+# 每个版本的测试脚手架快照（probe-upgrade 用，可随时重建）
+loom-e2e-*.zip

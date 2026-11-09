@@ -14,7 +14,16 @@ import { readFileSync } from 'node:fs';
 import { HookIndex, indexDefaults, estimateTokens } from '../lib/index.js';
 
 const BUNDLE = fileURLToPath(new URL('../lib/index.js', import.meta.url));
-const SCHEMA = /const SCHEMA = `([\s\S]*?)`;/.exec(readFileSync(BUNDLE, 'utf8'))[1];
+const SOURCE = readFileSync(BUNDLE, 'utf8');
+/*
+ * `SCHEMA` 里有插值（`${FACTS_INDEX_DDL}`，v7 起索引单独成块，迁移要原样重建）。
+ * 正则抠出来的是带占位符的原文，直接交给 SQLite 会报 `unrecognized token: "$"`，
+ * 所以按名字把同名的模板常量也抠出来替换。
+ */
+const SCHEMA = /const SCHEMA = `([\s\S]*?)`;/.exec(SOURCE)[1].replace(/\$\{(\w+)\}/gu, (whole, name) => {
+  const found = new RegExp(`const ${name} = \`([\\s\\S]*?)\`;`).exec(SOURCE);
+  return found === null ? whole : found[1];
+});
 
 const NOW = Date.UTC(2026, 9, 29, 5, 0, 0);
 const TURNS = 6;           // 每个事件的轮数

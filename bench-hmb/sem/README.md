@@ -33,6 +33,30 @@ node bench-hmb/sem/timing.mjs --model Xenova/bge-large-zh-v1.5
 依赖：`npm i --no-save @huggingface/transformers`（含 onnxruntime-node，约 45 个包）。
 模型全部是 q8 量化 ONNX，下在 `bench-hmb/sem/models/`（已 gitignore，718MB）。
 
+## 另外两个：不碰模型，只读 714 卷的产物（v0.2.45 之后）
+
+`eval-slot-ceiling-714.mjs` 量的是「槽 / 职衔 / 别名 / 条件」四条规则在 124 条未覆盖上的**天花板**。**默认拼的是 `meaning`（评分标签）+ 原话，只能量「规则认不认这个形状」，不能量「库里有没有那句话」**——量召回要加 `--quote`，只看原话；§55.2 的「别名 17/124」就是没加这个开关算错的（真实 10 条 / 2 个题号，见 `docs/design.md` §58.1）。`eval-mixed-index-714.mjs` 是单字通道的 α 扫描（**池退化了，只能看方向，不能当判决**）。两者的口径与结论写在 `docs/design.md` §55。
+
+```bash
+node bench-hmb/sem/eval-slot-ceiling-714.mjs                     # 四条规则的天花板（meaning+quote）
+node bench-hmb/sem/eval-slot-ceiling-714.mjs --quote             # 只按原话量，这才是召回口径
+node bench-hmb/sem/eval-slot-ceiling-714.mjs --show 20 --tag 职业 # 看某一类
+node bench-hmb/sem/eval-mixed-index-714.mjs                      # 单字通道 α 扫描
+```
+
+## 第三个：`sim-arms-714.mjs`（问句拆臂 / 实体扇出的仿真，v0.2.50）
+
+「每题命中任一侧面」和「每题命中所有侧面」之间有多大落差，外部有数（MAPLE：AnyAspect@20 98.1% vs AllAspect@20 15.7%），而我们的 714 指标就是 AllAspect。这个脚本量的是**在同样两条指针的预算下，换一种挑法能不能把第二条换成对的**。
+
+它自己灌一遍库、按 `surface-coverage.mjs` 的口径算 R10，所以能给出基线：**714 上复现出 648，与正式脚本逐位相同**。三种换法全负，数在 `docs/design.md` §62.3——结论是「换候选」和「加候选」一样是零和。
+
+```bash
+node bench-hmb/sem/sim-arms-714.mjs                     # 六个人物全跑，落 sim-arms-714.json
+node bench-hmb/sem/sim-arms-714.mjs --personas P12,P17  # 只跑两个，快很多
+```
+
+数据源固定是 `C:/Users/shaoz/Desktop/chat-memory-bench/{loom-surface.jsonl,grading/evidence.jsonl}`，不连数据库。
+
 ## 单元口径
 
 与 loom 索引时用的是同一段文本，不是另起一套：

@@ -19,7 +19,7 @@
  *   5. 嵌套隔离：问缓存模块，不把项目自己的值一起端出来；
  *   6. 不触发：问一个没有槽位的对象，不会顺带捞回槽位事实；
  *   7. 对照：关掉 slotMax 之后第 4 条取不到，证明差异来自这个通道；
- *   8. schema：库版本升到 5，三列存在，旧库能原地打开；
+ *   8. schema：库版本升到 6（v6 是原话索引，槽位列是 v5 给的），三列存在，旧库能原地打开；
  *   9. 记忆块：旧值那一行带「旧值」标记，不被读成现在生效的那个。
  */
 
@@ -125,7 +125,8 @@ check('关掉通道后同一个问题取不到那条', !closureOff.includes(Numb
 
 // ---- 9. schema ---------------------------------------------------------
 const version = Number(db.prepare('PRAGMA user_version').get().user_version);
-check('库版本升到 5', version === 5, `user_version=${version}`);
+// 6 是槽位列落地的版本；之后的迁移只会往上加，不该让这条断言每版重写一次。
+check('库版本至少 6', version >= 6, `user_version=${version}`);
 const columns = db.prepare('PRAGMA table_info(facts)').all().map((row) => String(row.name));
 check('三列都在', ['subject', 'attr', 'value'].every((name) => columns.includes(name)), columns.join(','));
 const index = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'facts_slot'").get();

@@ -59,7 +59,16 @@ function check(label, condition, detail = '') {
 const source = readFileSync(BUNDLE, 'utf8');
 const match = /const SCHEMA = `([\s\S]*?)`;/.exec(source);
 if (match === null) throw new Error('could not extract SCHEMA from the bundle');
-const ORIGINAL_SCHEMA = match[1];
+/*
+ * `SCHEMA` 里现在有插值（`${FACTS_INDEX_DDL}`，因为迁移要原样重建那段索引）。
+ * 正则抠出来的是带 `${...}` 的原文，直接交给 SQLite 会报 `unrecognized token: "$"`。
+ * 这里按名字把同名的模板常量也抠出来替换，够用且不用再抄一份 schema。
+ */
+const expand = (text) => text.replace(/\$\{(\w+)\}/gu, (whole, name) => {
+  const found = new RegExp(`const ${name} = \`([\\s\\S]*?)\`;`).exec(source);
+  return found === null ? whole : found[1];
+});
+const ORIGINAL_SCHEMA = expand(match[1]);
 
 const file = join(tmpdir(), `loom-index-selftest-${process.pid}.db`);
 for (const suffix of ['', '-wal', '-shm']) rmSync(`${file}${suffix}`, { force: true });
@@ -240,6 +249,15 @@ console.log('\n[9] 单元检查');
 check('parseRef 大写', parseRef('E37')?.kind === 'event' && parseRef('E37').id === 37);
 check('parseRef 容错', parseRef('  f12 ')?.kind === 'fact' && parseRef('#D3')?.kind === 'doc');
 check('parseRef 拒绝垃圾输入', parseRef('hello') === null && parseRef('') === null);
+/*
+ * 原话区间是唯一带 `to` 的编号，两件事都要钉：`L120` 就是 120-120（否则展开只
+ * 回去半段）；反着写的 `L126-120` 要拉正（模型抄的时候顺序很容易颠倒，而区间
+ * 一旦反了，`BETWEEN` 什么都不返回——空串会被读成「这段对话不存在」）。
+ */
+check('parseRef 原话单行', parseRef('L120')?.kind === 'turn' && parseRef('L120').to === 120);
+check('parseRef 原话区间', parseRef('#L120-126')?.id === 120 && parseRef('#L120-126').to === 126, JSON.stringify(parseRef('#L120-126')));
+check('parseRef 区间反着写要拉正', parseRef('L126-120')?.id === 120 && parseRef('L126-120').to === 126);
+check('parseRef 区间不吞垃圾', parseRef('L120-abc') === null);
 check('estimateTokens 中文', estimateTokens('你好世界') === 3, '4 字 ≈ 2.6 → 3');
 check('estimateTokens 拉丁', estimateTokens('hello world') === 3, '11 字符 ≈ 2.75 → 3');
 check('sliceByTokens 越界不出错', sliceByTokens('abc', 999, 100).piece === '');

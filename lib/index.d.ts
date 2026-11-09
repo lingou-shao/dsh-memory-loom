@@ -99,6 +99,30 @@ interface Config$1 {
     /** Print the tone an event was spoken in, when it was not neutral (Q64). */
     toneHint: boolean;
     /**
+     * Lead a fact hit with the verbatim sentence it was extracted from (v0.2.34).
+     *
+     * Both strings print: the quote is evidence, the summary is the index entry.
+     * Unverified quotes are never printed. `false` restores the 0.2.33 line
+     * exactly, which is what a rollback and an A/B run need.
+     */
+    quoteInSearch: boolean;
+    /**
+     * Search the raw turns as a fallback, and return a pointer to the exchange
+     * instead of a summary (v0.2.37).
+     *
+     * Everything else searches what the extractor made of a turn. On
+     * chat-memory-bench that layer located the evidence turn for 23 of 62
+     * questions; searching `l0` directly located 55. The hit is a short preview
+     * plus an `#L` ref the caller expands — the transcript is never dumped into
+     * the result. Runs only when the item pass came back thin, and never on a
+     * cross-identity query. `false` restores the 0.2.36 result exactly.
+     */
+    rawSearch: boolean;
+    /** How many raw-turn hits one search may add (v0.2.37). `0` turns the channel off. */
+    rawHits: number;
+    /** Characters of the matched turn shown before the pointer (v0.2.37). */
+    rawPreview: number;
+    /**
      * How many (subject, attr) facts may ride in the memory block (v0.2.32).
      *
      * A cap on a chain, not on a list of guesses: the newest values win and
