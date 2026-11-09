@@ -5402,3 +5402,69 @@ node bench-hmb/diff-surface.mjs loom-surface-shared2.jsonl loom-surface-overlap5
 去掉后 `npm pack` 读数 **532,693 → 334,685 B，文件数 9 → 8**。此前口算的「约 60 KB」是错的：除了那 472 KB，包里还有 `lib/index.js` 618,812 B 和 `README.md` 132,964 B 两个大头，压缩后仍在 327 KB 量级。**估算包体积前先 `npm pack` 一次，别用心算。**
 
 验证：空目录 `npm install` 后 10 个导出与 0.2.53 一致、包内 `test/selftest.mjs` 全部通过、`check-docs` 报版本一致（16 个工具）。README §10.3 指向 design.md 的那条 Markdown 链接从相对路径改成 GitHub 绝对地址——包内已无此文件，相对链接在 npm 页面上是死链，而 README 会随包发布。
+
+## 66. Benchmark 2.1 端到端；「待确认」曾经标满了每一条原话（2026-11-09，v0.2.54）
+
+### 66.1 新题库，和 714 那套不能直接比
+
+上游新开 `benchmark-2.1/`：两个榜（M01 宋雨橙 3000 轮 / M02 孟远舟 2500 轮），公开开发集 `exam-inputs.jsonl` 212 题（200 `main` + 12 `control`），封存集 76 道新题不公开。答案键在 `dataset/answer-key.jsonl`——`kind` / `interval_days` / `content_tags` / `rubric.severity` 都在这里，`exam-inputs.jsonl` 里只有题面、`now`、`cutoff_turn`。旧的 `datasets/natural-timegrid-20261101-v2`（714 题）分数不受影响，**两套的题面风格不同，数字不能横向比较**。
+
+官方口径照 `harness/scoring.py` 复刻：`judge_pass` 要求 required 非空且全部 `met`，且 `forbidden_hit` / `tempting_hit` / `unknown_asserted` 为空、`date_wrong` / `over_hedged` 均 false；`partial` 也算不通过。A 只算 `kind = main`，按 `TRAFFIC_BINS`（1h 54% / 当天 25% / 1–3d 9% / 4–7d 5% / 8–30d 6% / >30d 1%）、`severe` ×2 加权；成对通过按 `twin_id` 两题都过。
+
+### 66.2 读数：47.0（加权 61.7）
+
+| | main 题数 | A | A 加权 | 对照题 | 成对通过 | mean points |
+|---|---:|---:|---:|---:|---:|---:|
+| M01 短对话 | 129 | 50.4 | 65.4 | 6/6 | 2/4 | 0.664 |
+| M02 长对话 | 71 | 40.8 | 55.0 | 6/6 | 0/1 | 0.579 |
+| 合计 | 200 | **47.0**（94/200） | **61.7** | 12/12 | 2/5 | — |
+
+按间隔（`main`，n=185，15 题无 `interval_days`）：d0 63.4 → d3 56.4 → d15 43.2 → d45 37.1 → d90 30.3。
+
+106 个失败的分解：44 题全部要点未答到、52 题有的答到有的没答到、7 题只答一半、**3 题要点全中但踩红线**（撞禁忌 2 / 撞诱导 1）。`unknown_asserted` 一次没有，编造这一侧是干净的；`over_hedged` 命中 33 次，对冲是主要红线。
+
+口径三条必须写在数字旁边：自测自判（判分者是产品一侧，不是官方网关）；答题模型是隔离子代理，不是官方 flash；跑的是 200 题开发集，不等于封存集成绩。上游 dev 榜是 135/71 题的封存集，只能看量级：短对话 r3 75.5 / qwen-base 68.5 / bm25-recent6 57.4 / recent6 18.2，长对话 r3 80.8 / qwen-base 67.3 / bm25-recent6 38.9。
+
+### 66.3 失败落在哪：定位 53%，不是条数，也不是阈值
+
+把答案键的 `anchors[].last_turn` 当标准位置，检查 `memory_search` 返回行里的 `#F/#E/#L` 有没有盖住锚点轮（`#L` 是 L0 行号不是轮次，须回库换 `turn`；第一版直接比误报了 147 条泄漏）：**200 题里 106 题定位到，53.0%**。同一口径在 714 那套是 96.8%（62 题里 60 题）。
+
+不是条数问题：把 `limit` 从 5 一路放到 40，6 题末段样本的命中数**一位不动（3/6）**，命中的位次全是 1 或 2，没命中的在 40 条里也找不到。这是**二进制**的：要么强匹配排在最前，要么整条不在结果里。不是截断，是没进来。
+
+单点核查指向词面零共享。`M01-G088/d090` 问「我在单位是什么身份」，锚点轮的原话是「唉我也就是个合同工，跟编制内同事不一样」——问句 36 个二元组与那行共享 **0** 个；`M01-G025/d045` 问「我过生日那天…记得带上日子」，锚点轮共享 0/24。「单位」和「合同工/编制内」之间、「过生日」和「那天」之间没有字面桥。
+
+同一批里也发现**答案键的锚点带噪声**：`M01-G025/d045` 的锚点轮 t1965 是「睡不着，躺着翻来覆去的」，与问句无关；`M01-G018/d045` 的锚点 t241 是「我毕业还在蛋糕店当过一年学徒」。所以 53% 是**下界**，不是精确值——这一点在把它当回归指标之前必须先修口径。
+
+### 66.4 「待确认」标在了每一条原话上
+
+`facts` 表里 385 条（M01）、2454 条（M02）的 `confidence` **全是 0.55**，因为规则路径写死：`candidates.push({ …, confidence: .55 })`。而渲染判据是 `fact.source !== "manual" && fact.confidence < config.retrieval.unconfirmedBelow`，默认 `.6`。两条线一夹，规则路径抽出来的**每一条**都低于阈值，全被标成「待确认」。
+
+实测注入块的事实行 1009 行里 975 行带这个标记，**96.6%**。也就是说这个标记一条也没筛掉，只是给每一行都加了一句「这是推断的，不是他说的」——而那一行恰恰是用户原话的截断（`body` 只由 `userTurnsOf(text)` 的分句拼成，`clip(body, 200)` 之后仍是原话）。协议里对应的那句会把模型手里的原话降级成线索；同一轮判分里 `over_hedged` 命中 33 次。
+
+改法：规则路径改用 `STATED_CONFIDENCE = .8`（与抽取提示里给模型的默认值一致），`unconfirmedBelow` 这条线留给模型那一路自己报低分的事实。标记的含义因此回到它文档里写的那句——「整合时推断的，不是亲口说的」。
+
+### 66.5 复跑
+
+```
+node test/selftest.mjs                    # 全过
+node loom-e2e/probe-stated-confidence.mjs # 4 项：原话进块、不带标记、低置信推断仍带（改回 .55 时失败 2 项）
+node bench-hmb/retrieval-hit.mjs          # 62 题：60/62、53/60/60、84/99、49/62、指针 99 —— 逐位不动
+node bench-hmb/surface-coverage.mjs       # 714：搜索 463、工具面 662（92.7%）、两面并 672 —— 逐位不动
+# 2.1 那套（需先把上游 benchmark-2.1/dataset 放到桌面，见各脚本头部的 CMB21_DIR）
+node bench-hmb/surface-21.mjs                          # 212 题取面，约 29 分钟
+node bench-hmb/check-21-leak.mjs                       # 越界复核（回库把 #L 行号换成轮次）
+node bench-hmb/probe-21-rank.mjs --persona M01 --n 6   # limit 5/10/20/40 是否改变命中
+node bench-hmb/probe-21-miss.mjs --n 6                 # 换问句/换关键词能不能把锚点捞回来
+node bench-hmb/score-21.mjs <judgments.jsonl> <datasetDir>   # 复刻 scoring.py
+```
+
+`loom-e2e` 下 60 个探针全过（按退出码统计，非零退出 0 个）。注意别拿 `grep ✗` 判探针成败：`memory_doctor` 的降级诊断本身就会打 `✗`，那是被断言的输出。
+
+两条读数都不动是预期的：`confidence` 只喂那个标记，不参与打分（全文件里只有两处读它，一处在 `meta`、一处在 `unconfirmed`）。块内覆盖 130/714 = 18.2%，与改前一致。
+
+### 66.6 承认为止的地方
+
+- **模型那一路没跑。** loom 的 `llm` 是可选的，`loom-e2e/harness.mjs` 注释里写明「omit it to run the rule-only path every other probe uses」——所以 47.0 是**规则路径**的数，官方 `r3` / `qwen-base` 是 LLM 系。这个对照没做，任何「差距多少」的说法都得带着它。
+- **没加同义表。** §60 已经量过：对象词/上下位同义是磁铁（六组版变坏 3 行）。2.1 上零共享的病例里确实有「单位 ↔ 合同工」这类上下位关系，但那正是那次负和的那一类，没有新证据不重开。
+- **锚点噪声没修。** 见 66.3，修法要先确定「一条金标事实该由哪一轮承担」。
+- 参考答案是改写稿、不是原文，所以 714 那套的「证据 10 字窗覆盖」口径在 2.1 上不成立（试过，pass 与 fail 都接近 0），这条口径作废。

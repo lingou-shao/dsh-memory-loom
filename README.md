@@ -464,10 +464,12 @@ score = (similarity × strength + emotion − layerPenalty)
 
 | 标记 | 触发 | 含义 |
 |---|---|---|
-| `（待确认）` | 非手写且 confidence < 0.6 | 这是推断的，不是他说的 |
+| `（待确认）` | 模型抽取且自报 confidence < 0.6（规则路径抽的是原话，不标） | 这是推断的，不是他说的 |
 | `（可能已过时）` | 与当前话共享 ≥45% 词汇且否定/数字不一致 | 现在的说法优先 |
 | `（语气偏冲）` 等 | 事件 valence/arousal 非中性 | 这话当时的口气 |
 | `（旧值）` | 槽位链上被 superseded 的那节 | 这是历史版本，不是当前值 |
+
+**第一行曾经是坏的（v0.2.54 修）：** 规则路径把 `confidence` 写死成 `.55`，而标记的线是 `.6` —— 两条线一夹，抽出来的**每一条**都低于阈值，全被标成「待确认」。Benchmark 2.1 上量过：注入块的事实行 1009 行里 975 行带这个标记，**96.6%**。它一条也没筛掉，只是给每一行都加了一句「这是推断的，不是他说的」——而那一行恰恰是用户原话的截断。这个形状值得记住：**阈值不是判据，判据是「谁写的、写的时候有多确定」；一个写死的常数配一条阈值，等于没有阈值。**
 
 **预算是个上限，不是目标——实测块只用掉它的两成（v0.2.36 实测）。** 七个时点、每人 200–330 轮真实对话，`budgetTokens = 2000` 时块实际渲染 369–480 token；把预算一路压到 400，块才从 13 行掉到 11 行、从 373 掉到 278。也就是说 **2000→1000 之间几乎不产生差别，1000 以下由 `maxItems`（20）和各区配额决定，不由 token 决定**。
 
@@ -751,11 +753,11 @@ DSH 的工具名全局唯一，重名会让整个插件加载失败——所以�
 
 | 贴什么 | 例子 | 特点 |
 |---|---|---|
-| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.53/dsh-memory-loom-0.2.53.tgz` | 版本钉死，装到的就是这一版 |
+| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.54/dsh-memory-loom-0.2.54.tgz` | 版本钉死，装到的就是这一版 |
 | **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，每次装到的内容会变 |
 | **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
-离线 / 内网用 `npm install ./dsh-memory-loom-0.2.53.tgz`；手动挂载则把包放进 profile 的 `node_modules`，并在 bundle 列表里加 `dsh-memory-loom`（包内 `cordis.patch.yml` 会被组合器读取，`path` 必填——对话的长期记录不该落在启动目录里，临时试用可以设 `:memory:`）。
+离线 / 内网用 `npm install ./dsh-memory-loom-0.2.54.tgz`；手动挂载则把包放进 profile 的 `node_modules`，并在 bundle 列表里加 `dsh-memory-loom`（包内 `cordis.patch.yml` 会被组合器读取，`path` 必填——对话的长期记录不该落在启动目录里，临时试用可以设 `:memory:`）。
 
 > **贴本地 tarball 的要注意**：DSH 会把你给的源**原样**记成 profile 的依赖。贴本地文件就写成 `"dsh-memory-loom": "file:C:/Users/you/Desktop/xxx.tgz"`——这个绝对路径变成了长期依赖，tgz 一旦被挪走，再遇到「重新解析依赖」（lockfile 丢失或重生成、pnpm store 被 prune、换机器）就会报 `Could not install from ... as it does not exist`。规避办法：tgz 别放桌面/下载目录，或贴 Release 的 HTTPS 直链，或贴 git 地址。
 
@@ -778,7 +780,7 @@ DSH 的工具名全局唯一，重名会让整个插件加载失败——所以�
 1. **先备份库**（`%USERPROFILE%\.dsh\memory\loom.db`）。新代码第一次加载会 `ALTER TABLE` 加列，备份是为了有退路。
 2. 装新版。
 3. **把 DSH 完全退出再打开**（不是新开会话，是重启进程）。
-4. 用 `memory_doctor` 第一行确认：`运行 0.2.53 · 库 schema v7`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版；新代码没跑起来时它根本打不出来。
+4. 用 `memory_doctor` 第一行确认：`运行 0.2.54 · 库 schema v7`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版；新代码没跑起来时它根本打不出来。
 
 ### 6.5 装完怎么确认
 
@@ -1126,7 +1128,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 
 注释里有大量 `Q11` / `Q20` / `Q23` / `Q43` / `Q56` / `Q61` / `Q62` / `Q63` / `Q64` / `Q65` / `Q66` 这样的引用。它们是早期设计问答的编号（问题 11、20……），指向"这个参数为什么是这个值"的原始决策记录。**编号本身没有索引了**，但每处引用旁边的注释都写清了理由，按注释读即可。
 
-逐版的施工记录也在那里：[`docs/design.md`](https://github.com/lingou-shao/dsh-memory-loom/blob/main/docs/design.md)（477 KB，不随 npm 包发布，只在仓库里）。它按版本顺序记录了 v0.2.9 到 v0.2.53 每一版修了什么、踩到什么——**读它之前先读本文的 §3**，否则容易把"某一版的补丁"误当成"架构的一部分"。本文的 §1.1、§3 的绝大多数事实都是从那份记录里核对出来的。
+逐版的施工记录也在那里：[`docs/design.md`](https://github.com/lingou-shao/dsh-memory-loom/blob/main/docs/design.md)（477 KB，不随 npm 包发布，只在仓库里）。它按版本顺序记录了 v0.2.9 到 v0.2.54 每一版修了什么、踩到什么——**读它之前先读本文的 §3**，否则容易把"某一版的补丁"误当成"架构的一部分"。本文的 §1.1、§3 的绝大多数事实都是从那份记录里核对出来的。
 
 ### 10.4 这份文档自身的边界
 
