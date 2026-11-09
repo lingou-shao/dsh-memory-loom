@@ -5394,3 +5394,11 @@ node bench-hmb/diff-surface.mjs loom-surface-shared2.jsonl loom-surface-overlap5
 ```
 
 基线产物 `loom-surface-shared2.jsonl` / `-summary.json`（0.2.52 的 659）、`loom-surface-aliasword.jsonl`（660，只有 `aliasHit` 那一条）、`loom-surface-overlap{,2,3,4,5}.jsonl`（五版准入），最终 `loom-surface-overlap5.jsonl`（662）。撤回的两版：`loom-surface-rainnight.jsonl`（雨夜进组，660）、`loom-surface-overlap.jsonl`（宽版闸门，649）。
+
+### 65.10 打包口径：`docs/design.md` 不再随包发布
+
+发布前把 532,693 B 的包拆开看：`docs/design.md` 一份占 477,119 B（89.5%）。这份施工日志是**仓库里的档案**——按版本记施工过程，装包的人不需要它；`files` 里那条 `docs` 是从 0.2.x 早期沿用下来的，一直没人回头看它的成本。
+
+去掉后 `npm pack` 读数 **532,693 → 334,685 B，文件数 9 → 8**。此前口算的「约 60 KB」是错的：除了那 472 KB，包里还有 `lib/index.js` 618,812 B 和 `README.md` 132,964 B 两个大头，压缩后仍在 327 KB 量级。**估算包体积前先 `npm pack` 一次，别用心算。**
+
+验证：空目录 `npm install` 后 10 个导出与 0.2.53 一致、包内 `test/selftest.mjs` 全部通过、`check-docs` 报版本一致（16 个工具）。README §10.3 指向 design.md 的那条 Markdown 链接从相对路径改成 GitHub 绝对地址——包内已无此文件，相对链接在 npm 页面上是死链，而 README 会随包发布。

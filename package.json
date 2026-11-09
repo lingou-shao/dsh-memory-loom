@@ -29,7 +29,6 @@
     "lib",
     "test",
     "cordis.patch.yml",
-    "docs",
     "loom-e2e/REPORT.md",
     "LICENSE"
   ],
