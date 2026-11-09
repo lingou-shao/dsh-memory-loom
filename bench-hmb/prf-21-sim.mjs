@@ -272,6 +272,33 @@ function summarize(list) {
 const pct = (a, b) => `${((100 * a) / (b || 1)).toFixed(1)}%`;
 
 const results = simulate(P);
+
+/* --dump：把逐题明细写盘，供 diag-21-missed.mjs 复核「写侧丢失 vs 闸门误杀」 */
+const DUMP = argOf('dump', '');
+if (DUMP) {
+	const byId = new Map(questions.map((q) => [q.id, q]));
+	const lines = results.map((r) => {
+		const q = byId.get(r.id);
+		const coverRow = q.baseRank.slice(0, P.top).find((x) => q.cover(x.doc));
+		return JSON.stringify({
+			id: r.id,
+			persona: q.persona,
+			case_id: r.case_id,
+			state: r.state,
+			question: r.question,
+			cutoff: q.cutoff,
+			now: exams.get(r.id)?.now ?? null,
+			baseHit: r.baseHit,
+			prfHit: r.prfHit,
+			coveringTurn: coverRow?.doc.turn ?? null,
+			coveringText: coverRow?.doc.text ?? null,
+			baseRank: coverRow ? q.baseRank.findIndex((x) => x.doc === coverRow.doc) + 1 : null,
+			anchorTurns: q.anchors.map((a) => a.turn)
+		});
+	});
+	fs.writeFileSync(DUMP, lines.join('\n') + '\n', 'utf8');
+	console.log(`\n明细写 ${DUMP}：${lines.length} 行`);
+}
 const all = summarize(results);
 const miss = summarize(results.filter((r) => r.state === 'miss'));
 const hit = summarize(results.filter((r) => r.state === 'hit'));
