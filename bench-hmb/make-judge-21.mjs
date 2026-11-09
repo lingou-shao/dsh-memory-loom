@@ -12,7 +12,7 @@ import path from 'node:path';
 
 const ANSWERS = process.argv[2];
 const OUT = process.argv[3] ?? path.join(path.dirname(ANSWERS), 'judge');
-const PER_BATCH = Number(process.argv[4] ?? 26);
+const PER_BATCH = Number(process.argv[4] ?? 26) || 26;
 const DS = process.env.CMB21_DIR ?? 'C:/Users/shaoz/Desktop/chat-memory-bench/benchmark-2.1/dataset';
 
 const jsonl = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
@@ -22,8 +22,11 @@ const answers = new Map(jsonl(ANSWERS).map((row) => [row.id, row]));
 
 const numbered = (list) => (list && list.length > 0 ? list.map((one, i) => `${i}) ${one}`).join(' ／ ') : '——');
 
+/** 只给有答案的题（抽样子集实验用；默认全量）。 */
+const ONLY_ANSWERED = process.argv.includes('--answered');
 const blocks = [];
 for (const [id, key] of keys) {
+	if (ONLY_ANSWERED && !answers.has(id)) continue;
 	const exam = inputs.get(id) ?? {};
 	const answer = answers.get(id)?.answer ?? '（无作答）';
 	const rubric = key.rubric ?? {};
