@@ -151,6 +151,13 @@ console.log(`索引块实占：${hookTokens} token\n`);
 console.log('[2] 取回正文');
 const expanded = index.body('master', 'E1');
 check('E1 能解析到 L0 区间', expanded.ok && expanded.kind === 'event', `正文 ${expanded.chars} 字`);
+/* 展开正文的每段开头必须带日期与周几（§82.3）：窗口常跨天，光有结果行上的日期会把
+   「明天」算到下一天。这条守的是格式，不是某一句的日期对不对。 */
+check(
+  '展开正文首行标了日期与周几',
+  /^\[\d{2}-\d{2} 周[日一二三四五六]\] /u.test(expanded.text),
+  expanded.text.split('\n')[0].slice(0, 24)
+);
 const sliced = sliceByTokens(expanded.text, 0, config.expandBudgetTokens);
 check('首屏受 expandBudgetTokens 约束', estimateTokens(sliced.piece) <= config.expandBudgetTokens, `${estimateTokens(sliced.piece)} token`);
 check('2800 字正文一屏装得下', sliced.done === true, `${expanded.chars} 字 → ${estimateTokens(expanded.text)} token`);
