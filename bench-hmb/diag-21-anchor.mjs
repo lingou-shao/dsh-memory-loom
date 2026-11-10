@@ -267,7 +267,125 @@ for (const persona of PERSONAS) {
 		const seeded = delivered.size === 0 ? 0 : Math.max(...delivered);
 		/** 池子超过 `threshold` 行就要求共享 ≥3 个实词，否则维持 ≥2（外部材料的「防爆阀门」）。 */
 		const adaptive = (threshold) => atLeast(atLeast(2).length >= threshold ? 3 : 2).slice(-3).map((one) => one.row);
+		/*
+		* §80：外部材料把「挑哪几行」写成 0-1 背包。公式不用抄，能落地的只有一句话：
+		* **别按「最新」挑，按分数挑**。这里把它的几种写法并排量一遍。
+		*
+		* 先钉一个前提：进块的行每条都被 `clip(rawPreview = 60)` 截过，所以每条
+		* 重量相同（≤60 字符），背包退化成「取前 k 条」——200 字符预算恰好就是
+		* 3 条。变长只发生在短行上，所以 `packNewest` 允许最多 6 条短行挤进 200。
+		*/
+		const poolRows = atLeast(2);
+		const charsOf = (one) => Math.min(one.row.text.length, 60);
+		const byWeight = (a, b) => b.weight - a.weight || b.row.turn - a.row.turn;
+		const byDensity = (a, b) => b.weight / Math.max(1, charsOf(b)) - a.weight / Math.max(1, charsOf(a)) || b.row.turn - a.row.turn;
+		const asc = (list) => [...list].sort((a, b) => a.row.turn - b.row.turn).map((one) => one.row);
+		/** 200 字符预算，从最新往回装（材料给的硬上限）。 */
+		const packNewest = (list, budget) => {
+			const out = [];
+			let used = 0;
+			for (let i = list.length - 1; i >= 0 && out.length < 6; i--) {
+				const cost = charsOf(list[i]);
+				if (used + cost > budget) continue;
+				used += cost;
+				out.push(list[i]);
+			}
+			return asc(out);
+		};
+		/** 按某个顺序装包。 */
+		const packBy = (list, cmp, budget) => {
+			const out = [];
+			let used = 0;
+			for (const one of [...list].sort(cmp)) {
+				if (out.length >= 6) break;
+				const cost = charsOf(one);
+				if (used + cost > budget) continue;
+				used += cost;
+				out.push(one);
+			}
+			return asc(out);
+		};
+		/** 边际增益贪心：每步取「重叠 − 与已选的重复」（材料第 4 条 COMI 的朴素版）。 */
+		const marginal = (list, want) => {
+			const picked = [];
+			const left = [...list];
+			const sets = new Map(left.map((one) => [one.row.id, new Set(tokensOf(one.row.text))]));
+			while (picked.length < want && left.length > 0) {
+				let bestAt = 0;
+				let bestScore = -Infinity;
+				for (let i = 0; i < left.length; i++) {
+					const own = sets.get(left[i].row.id);
+					let overlap = 0;
+					for (const one of picked) overlap += sharedContent(own, one.set);
+					const score = left[i].weight - overlap;
+					if (score > bestScore || (score === bestScore && left[i].row.turn > left[bestAt].row.turn)) {
+						bestScore = score;
+						bestAt = i;
+					}
+				}
+				const take = left.splice(bestAt, 1)[0];
+				picked.push({ row: take.row, turn: take.row.turn, set: sets.get(take.row.id) });
+			}
+			return asc(picked);
+		};
+		/** 连通分量抽样（材料「拓扑 / Betti-0」那条）：两行共享 ≥2 实词就连一条边，每簇取最新一条。 */
+		const components = (list, want) => {
+			const n = list.length;
+			const parent = Array.from({ length: n }, (_, i) => i);
+			const find = (i) => {
+				while (parent[i] !== i) {
+					parent[i] = parent[parent[i]];
+					i = parent[i];
+				}
+				return i;
+			};
+			const sets = list.map((one) => new Set(tokensOf(one.row.text)));
+			for (let i = 0; i < n; i++) {
+				for (let j = i + 1; j < n; j++) {
+					if (sharedContent(sets[i], sets[j]) < 2) continue;
+					const a = find(i);
+					const b = find(j);
+					if (a !== b) parent[a] = b;
+				}
+			}
+			const groups = new Map();
+			list.forEach((one, i) => {
+				const root = find(i);
+				const arr = groups.get(root) ?? [];
+				arr.push(one);
+				groups.set(root, arr);
+			});
+			const reps = [...groups.values()].map((arr) => arr[arr.length - 1]).sort((a, b) => b.row.turn - a.row.turn).slice(0, want);
+			const have = new Set(reps.map((one) => one.row.id));
+			for (const one of [...list].reverse()) {
+				if (reps.length >= want) break;
+				if (have.has(one.row.id)) continue;
+				have.add(one.row.id);
+				reps.push(one);
+			}
+			return asc(reps);
+		};
 		const rules = {
+			/** 按分数取前 3——这就是材料那个「贪心背包」在等重条件下的结果。 */
+			w3: () => asc([...poolRows].sort(byWeight).slice(0, 3)),
+			w5: () => asc([...poolRows].sort(byWeight).slice(0, 5)),
+			/** 密度分（Qwen「密度感知压缩比」）：重叠词数 / 字符数。 */
+			dens3: () => asc([...poolRows].sort(byDensity).slice(0, 3)),
+			marg3: () => marginal(poolRows, 3),
+			comp3: () => components(poolRows, 3),
+			/** 200 字符预算的三种装法。 */
+			budget200: () => packNewest(poolRows, 200),
+			w3pack: () => packBy(poolRows, byWeight, 200),
+			densPack: () => packBy(poolRows, byDensity, 200),
+			/**
+			* 池子大才多给两条（§80.4）。
+			*
+			* 上面那张表的形状是两套库完全不同的：M01 池子中位 2 行，任何判据的真增量
+			* 都是 10 题、一动不动的 2.15 行；M02 池子中位 53 行，判据换不动，**只有
+			* 加条数动得了**（3 条 7 题 → 5 条 9 题）。所以条数不该是常数，池子大到
+			* 分不清时多给两条，池子小的时候维持原样不花字符。
+			*/
+			pool5: () => (poolRows.length >= 20 ? poolRows.slice(-5) : poolRows.slice(-3)).map((one) => one.row),
 			/** 最近一次重叠 ≥2 / ≥3 的轮，再往后再走 8 轮（与产品的链同一套走法）。 */
 			q2: () => (atLeast(2).length ? [atLeast(2).at(-1).row] : []),
 			q3: () => (atLeast(3).length ? [atLeast(3).at(-1).row] : []),
@@ -390,7 +508,7 @@ function report(label, list) {
 	const ceil = (k) => list.filter((one) => Math.max(0, ...one.answerWeights) >= k).length;
 	console.log(`\n--- ${label}：${list.length} 题 ---`);
 	console.log(`  产品锚点命中答案轮 ${list.filter((one) => one.product.hit).length}（${pct(list.filter((one) => one.product.hit).length, list.length)}）`);
-	for (const name of ['q2', 'q3', 'q2tail3', 'q2tail5', 'qmax', 'qmaxAfter', 'adapt5', 'adapt10', 'adapt20', 'span100', 'span40', 'span20', 'mix20']) {
+	for (const name of ['q2', 'q3', 'pool5', 'q2tail3', 'q2tail5', 'qmax', 'qmaxAfter', 'adapt5', 'adapt10', 'adapt20', 'span100', 'span40', 'span20', 'mix20', 'w3', 'w5', 'dens3', 'marg3', 'comp3', 'budget200', 'w3pack', 'densPack']) {
 		const direct = list.filter((one) => one.rules[name].hit).length;
 		console.log(`  规则 ${name.padEnd(9)} 直取答案轮 ${String(direct).padStart(3)}（${pct(direct, list.length)}）`);
 	}
