@@ -6,7 +6,8 @@
  *
  * 关注三件事：
  *   1. 每轮零产出的比例（按人物分开，M01 与 M02 差了 5 倍，得解释）
- *   2. 零产出轮里，整轮文本 > 220 字的占比 —— `extractWithRules` 里 `clean.length > 220` 是直接 continue
+ *   2. 零产出轮里分句的文本长度分布 —— `extractWithRules` 里 `clean.length > 220` 是直接 continue，
+ *      但 `clean` 是**分句**不是整轮（第一版把两者搞混，错记成「204 轮整轮被跳过」，见 §70.6）
  *   3. 零产出轮的文本长度分布
  *
  *   node bench-hmb/diag-write-loss.mjs
@@ -75,9 +76,22 @@ for (const [persona, dbPath] of Object.entries(DBS)) {
 	console.log(`  零 fact 且不在任何事件区间 ${noEvent.length}（${pct(noEvent.length, turns.length)}）；其中文本 >=6 字 ${noEventSub.length}/${sub.length} = ${pct(noEventSub.length, sub.length)}`);
 	console.log(`  零产出轮 文本长度 中位 ${q(zero, 0.5)} p90 ${q(zero, 0.9)} 最大 ${Math.max(...zero.map((x) => x.len))}`);
 	console.log(`  有产出轮 文本长度 中位 ${q(has, 0.5)} p90 ${q(has, 0.9)}`);
-	const over220 = zero.filter((x) => x.len > 220);
-	const over220all = turns.filter((t) => norm(t['用户消息']).length > 220);
-	console.log(`  整轮 >220 字（extractWithRules 直接 continue）：${over220.length}/${turns.length} = ${pct(over220.length, turns.length)}，其中零产出 ${over220.length}/${over220all.length}`);
+	/*
+	 * 这里原来算的是「整轮 > 220 字」，并直接读成「extractWithRules 跳过」。
+	 * 错在 `clean` 是**分句**，不是整轮：`sentences()` 按 `。！？!?；;` 切，
+	 * 一封 641 字的信切完每句都远短于 220。按分句重算，>220 的句子是 0 句。
+	 */
+	const SENT_SPLIT = /(?<=[。！？!?；;])\s*|(?<=\.)\s+(?=[A-Z一-鿿])/u;
+	let sentTotal = 0;
+	let sentOver = 0;
+	for (const t of turns) {
+		for (const s of String(t['用户消息']).replace(/[ \t]+/gu, ' ').split(SENT_SPLIT)) {
+			if (!s.trim()) continue;
+			sentTotal++;
+			if (norm(s).length > 220) sentOver++;
+		}
+	}
+	console.log(`  分句 >220 字（extractWithRules 真正的判据）：${sentOver}/${sentTotal} 句 = ${pct(sentOver, sentTotal)}  ← 上限从未触发`);
 	const short6 = zero.filter((x) => x.len < 6);
 	console.log(`  零产出且 <6 字：${short6.length}`);
 	console.log('  零产出样例（前 8 条，按长度）');
