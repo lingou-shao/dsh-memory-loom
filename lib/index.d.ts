@@ -123,6 +123,33 @@ interface Config$1 {
     /** Characters of the matched turn shown before the pointer (v0.2.37). */
     rawPreview: number;
     /**
+     * Append the standing rules whose time window covers `now` (v0.2.60).
+     *
+     * Some rules are given by the clock — 「下午三点后就不喝了」 — and the question
+     * never repeats them (「这会儿想喝点什么提神，咖啡合适吗」 shares zero bigrams
+     * with that line). This channel does not recall by words: it parses the hour,
+     * compares with `now`, and annotates the line that is in force right now.
+     * `false` restores the 0.2.59 block exactly.
+     */
+    clockRules: boolean;
+    /** How many clock rules one block may annotate (v0.2.60). `0` turns the channel off. */
+    clockMax: number;
+    /**
+     * Let a row sharing one *rare* content word into the tail of the results
+     * (v0.2.60). A proper name is often the only anchor (「周哥」 appears three
+     * times in a whole persona), and the 0.25 containment gate is normalised by
+     * the question's length, so it can never pass. Tail only: appended when
+     * there is room, never displacing a picked pointer.
+     */
+    rareTail: boolean;
+    /**
+     * Anchor a 「那件事后来办成了吗」 question on the plan row instead of the
+     * question's words (v0.2.60). The verb is abstract (搬家/办成) and never
+     * appears in the transcript; the plan row carries the topic words, and the
+     * outcome is the latest later turn sharing two of them.
+     */
+    planOutcome: boolean;
+    /**
      * How many (subject, attr) facts may ride in the memory block (v0.2.32).
      *
      * A cap on a chain, not on a list of guesses: the newest values win and
