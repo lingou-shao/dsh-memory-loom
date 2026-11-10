@@ -43,7 +43,9 @@ const RETRIEVAL = {
   // 闸门扫描用：`--relax 0` 关掉「问句覆盖率」这道闸，看召回能放开到多少。
   ...(process.argv.includes('--relax') ? { relaxMinOverlap: Number(argOf('relax', 0.25)) } : {}),
   // 原话通道什么时候启动。默认「派生层少于 3 条」——闸门一放开，它就永远不启动了。
-  ...(process.argv.includes('--rawbelow') ? { relaxBelow: Number(argOf('rawbelow', 3)) } : {})
+  ...(process.argv.includes('--rawbelow') ? { relaxBelow: Number(argOf('rawbelow', 3)) } : {}),
+  // 闸门的第三条旁路（§71）：共享 N 个内容词就放行，不按问句比例算。
+  ...(process.argv.includes('--solid') ? { solidOverlap: Number(argOf('solid', 3)) } : {})
 };
 
 for (const need of [

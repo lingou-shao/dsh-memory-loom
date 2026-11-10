@@ -33,6 +33,11 @@ const EXPANDS = Number(argOf('expands', 2));
 const PERSONAS = String(argOf('personas', 'M01,M02')).split(',').filter(Boolean);
 /** 冒烟用：每个人物只取前 N 题（按 cutoff 升序），量接口不量成绩。 */
 const N = Number(argOf('n', 0));
+/**
+ * 闸门的第三条旁路：共享几个内容词就放行（0 = 关闭，见 lib 的 `solidOverlap`）。
+ * 它只能在 `createLoom` 时给 —— 运行时改 `loom.settings` 不会到达引擎（§70.7）。
+ */
+const SOLID = Number(argOf('solid', 0));
 
 const jsonl = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
 const exams = jsonl(path.join(DS, 'exam-inputs.jsonl'));
@@ -50,11 +55,32 @@ function l0Refs(text) {
 	return out;
 }
 
+/*
+ * 边跑边落盘。
+ *
+ * 全卷一轮 45 分钟，原来只在收尾 `writeFileSync` 一次，后台跑被打断就一点不剩
+ * （2026-11-10 实际吃了这一下：M02 跑到 190/212 被回收，产物为空）。
+ * 现在每题追加一行；`CMB21_RESUME=1` 时把已完成的题读回来，只补没做完的。
+ * 越界那两列（`max_turn_seen` / `leak_turns`）要回库查行号，只在**整卷跑完**后
+ * 补写一遍；中途断掉的文件缺这两列，但那两列是断言不是读数，不影响取面。
+ */
+const done = new Map();
+if (process.env.CMB21_RESUME === '1' && fs.existsSync(OUT)) {
+	for (const line of fs.readFileSync(OUT, 'utf8').split('\n')) {
+		if (!line.trim()) continue;
+		const row = JSON.parse(line);
+		done.set(row.id, row);
+	}
+	if (done.size > 0) console.error('续跑：已有', done.size, '题');
+}
+
 const rows = [];
 for (const persona of PERSONAS) {
 	const mine = exams.filter((one) => one.persona === persona).sort((a, b) => a.cutoff_turn - b.cutoff_turn);
 	if (N > 0) mine.splice(N);
 	if (mine.length === 0) continue;
+	const already = mine.filter((one) => done.has(one.id)).map((one) => done.get(one.id));
+	rows.push(...already);
 	const turns = jsonl(path.join(DS, `${persona}.jsonl`));
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), `s21-${persona}-`));
 	const dbPath = path.join(dir, 'loom.db');
@@ -63,7 +89,7 @@ for (const persona of PERSONAS) {
 	let clock = Date.parse(turns[0]['逻辑时间']);
 	Date.now = () => clock;
 
-	const loom = createLoom({ dbPath, config: { consolidation: { triggerTokens: 0 } } });
+	const loom = createLoom({ dbPath, config: { consolidation: { triggerTokens: 0 }, retrieval: { solidOverlap: SOLID } } });
 	const SID = `s21-${persona}`;
 	let cursor = 0;
 	let previous = null;
@@ -77,6 +103,7 @@ for (const persona of PERSONAS) {
 				previous = at;
 			}
 			clock = Math.max(clock, Date.parse(exam.now));
+			if (done.has(exam.id)) continue;
 			const block = String(loom.memoryBlock(SID));
 			const search = String(await loom.call('memory_search', { query: exam.question, limit: LIMIT }, SID));
 			const refs = [...String(search).matchAll(/#([FEPL]\d+(?:-\d+)?)/gu)].map((m) => m[1]);
@@ -89,7 +116,7 @@ for (const persona of PERSONAS) {
 				}
 			}
 			const all = [block, search, ...expanded.map((one) => one.text)].join('\n');
-			rows.push({
+			const row = {
 				id: exam.id,
 				persona,
 				cutoff_turn: exam.cutoff_turn,
@@ -97,7 +124,9 @@ for (const persona of PERSONAS) {
 				question: exam.question,
 				context: { block, search, expanded },
 				refs: l0Refs(all).map(([from, to]) => `${from}-${to}`)
-			});
+			};
+			rows.push(row);
+			fs.appendFileSync(OUT, JSON.stringify(row) + '\n', 'utf8');
 			if (rows.length % 10 === 0) console.error(persona, rows.length, '题', 'cursor', cursor, '/', turns.length);
 		}
 	} finally {
@@ -113,6 +142,8 @@ for (const persona of PERSONAS) {
 	const turnOf = new Map(db.prepare('SELECT id, turn FROM l0').all().map((row) => [row.id, row.turn]));
 	db.close();
 	for (const row of rows.filter((one) => one.persona === persona)) {
+		// 续跑读回来的行已经删了 `refs`（那是回库查轮次用的中间量），跳过即可。
+		if (!row.refs) continue;
 		let worst = 0;
 		for (const span of row.refs) {
 			const [from, to] = span.split('-').map(Number);

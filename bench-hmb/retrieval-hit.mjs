@@ -50,7 +50,9 @@ const RETRIEVAL = {
   ...(process.argv.includes('--no-raw') ? { rawSearch: false } : {}),
   rawHits: RAW_HITS,
   // 让原话通道在派生层给足 3 条时也照跑，用来分辨「没跑」和「跑了但排错」。
-  ...(RAW_BELOW > 0 ? { relaxBelow: RAW_BELOW } : {})
+  ...(RAW_BELOW > 0 ? { relaxBelow: RAW_BELOW } : {}),
+  // 闸门的第三条旁路（§71）：共享 N 个内容词就放行，不按问句比例算。
+  ...(process.argv.includes('--solid') ? { solidOverlap: argOf('solid', 3) } : {})
 };
 
 for (const need of [path.join(DS, 'exam-inputs.jsonl'), path.join(BENCH, 'grading', 'evidence.jsonl')]) {
