@@ -84,8 +84,14 @@ const seed = async (loom, { withFillers = true } = {}) => {
 const open = setup('open');
 /* ---- 对照：放宽关闭 ---- */
 const closed = setup('closed', { relaxMatch: false });
-/* ---- 对照：守卫收紧 ---- */
-const strictGuard = setup('guard', { relaxMinOverlap: 0.9 });
+/* ---- 对照：守卫收紧 ----
+*
+* `solidOverlap` 必须一起关掉（§71）。那条旁路与这里的比例守卫是**并列**关系：
+* 共享 ≥3 个内容词就放行，不除以问句长度，所以把 `relaxMinOverlap` 调到 0.9 也拦不住
+* 「我不吃香菜」这一句（它共享香菜/不吃/这件事）。不关掉它，这条断言量的是旁路，
+* 不是旋钮。
+*/
+const strictGuard = setup('guard', { relaxMinOverlap: 0.9, solidOverlap: 0 });
 /*
 * 记忆块那一组单独起两个实例，并且关掉整合：整合会从用户那句话里抽出新事实，
 * 新事实必然排在最前面，那样无论放宽与否记忆块里都有「香菜」，测不出差异。
