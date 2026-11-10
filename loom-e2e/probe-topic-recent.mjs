@@ -65,7 +65,9 @@ async function runArm(topicTail) {
 	const loom = createLoom({
 		dbPath: join(dir, 'loom.db'),
 		// 整合关掉：它会把探针自己的句子折成事实，掩盖 l0 通道。
-		config: { consolidation: { enabled: false }, retrieval: { topicTail } }
+		// 显式钉 `intent`：0.2.58 起默认是 `always`（§79），这个探针量的是「意图词当开关」
+		// 那一档；放开到全卷的那一档由 `probe-topic-trigger.mjs` 管。
+		config: { consolidation: { enabled: false }, retrieval: { topicTail, topicTrigger: 'intent' } }
 	});
 	try {
 		const at = Date.now() - 30 * DAY;

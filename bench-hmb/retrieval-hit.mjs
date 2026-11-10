@@ -52,7 +52,10 @@ const RETRIEVAL = {
   // 让原话通道在派生层给足 3 条时也照跑，用来分辨「没跑」和「跑了但排错」。
   ...(RAW_BELOW > 0 ? { relaxBelow: RAW_BELOW } : {}),
   // 闸门的第三条旁路（§71）：共享 N 个内容词就放行，不按问句比例算。
-  ...(process.argv.includes('--solid') ? { solidOverlap: argOf('solid', 3) } : {})
+  ...(process.argv.includes('--solid') ? { solidOverlap: argOf('solid', 3) } : {}),
+  // 话题链的入口判据（§79）：`--topic always` 让每次检索都跑，不只在问进度时。
+  // 注意 `argOf` 会转数字，字符串选项要自己取。
+  ...(process.argv.includes('--topic') ? { topicTrigger: String(process.argv[process.argv.indexOf('--topic') + 1] ?? 'always') } : {})
 };
 
 for (const need of [path.join(DS, 'exam-inputs.jsonl'), path.join(BENCH, 'grading', 'evidence.jsonl')]) {

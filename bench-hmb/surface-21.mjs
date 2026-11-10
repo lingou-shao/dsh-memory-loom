@@ -38,6 +38,8 @@ const N = Number(argOf('n', 0));
  * 它只能在 `createLoom` 时给 —— 运行时改 `loom.settings` 不会到达引擎（§70.7）。
  */
 const SOLID = Number(argOf('solid', 0));
+/** 话题链入口（§79）：`--topic always` 每次检索都跑。空 = 用产品默认（只看意图）。 */
+const TOPIC = argOf('topic', '');
 
 const jsonl = (file) => fs.readFileSync(file, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
 const exams = jsonl(path.join(DS, 'exam-inputs.jsonl'));
@@ -89,7 +91,10 @@ for (const persona of PERSONAS) {
 	let clock = Date.parse(turns[0]['逻辑时间']);
 	Date.now = () => clock;
 
-	const loom = createLoom({ dbPath, config: { consolidation: { triggerTokens: 0 }, retrieval: { solidOverlap: SOLID } } });
+	const loom = createLoom({
+		dbPath,
+		config: { consolidation: { triggerTokens: 0 }, retrieval: { solidOverlap: SOLID, ...(TOPIC === '' ? {} : { topicTrigger: TOPIC }) } }
+	});
 	const SID = `s21-${persona}`;
 	let cursor = 0;
 	let previous = null;

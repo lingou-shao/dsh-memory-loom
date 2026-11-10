@@ -45,7 +45,11 @@ const RETRIEVAL = {
   // 原话通道什么时候启动。默认「派生层少于 3 条」——闸门一放开，它就永远不启动了。
   ...(process.argv.includes('--rawbelow') ? { relaxBelow: Number(argOf('rawbelow', 3)) } : {}),
   // 闸门的第三条旁路（§71）：共享 N 个内容词就放行，不按问句比例算。
-  ...(process.argv.includes('--solid') ? { solidOverlap: Number(argOf('solid', 3)) } : {})
+  ...(process.argv.includes('--solid') ? { solidOverlap: Number(argOf('solid', 3)) } : {}),
+  // 话题链的入口判据（§79）：`--topic always` 让每次检索都跑，不只在问进度时。
+  ...(process.argv.includes('--topic') ? { topicTrigger: argOf('topic', 'always') } : {}),
+  // 旁路行能不能撑破 `limit`（§79）：默认只能填空位。
+  ...(process.argv.includes('--tailbeyond') ? { tailBeyond: true } : {})
 };
 
 for (const need of [
