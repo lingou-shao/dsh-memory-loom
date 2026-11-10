@@ -31,6 +31,10 @@ const argOf = (name, fallback) => {
 const LIMIT = Number(argOf('limit', 10));
 const EXPANDS = Number(argOf('expands', 2));
 const PERSONAS = String(argOf('personas', 'M01,M02')).split(',').filter(Boolean);
+/** 已知会打崩进程的题号（`CMB21_SKIP=a,b`），跳过而不是整卷重来。 */
+const SKIP = new Set(String(process.env.CMB21_SKIP ?? '').split(',').map((one) => one.trim()).filter(Boolean));
+/** 逐轮落盘日志（`CMB21_TURNLOG=path`）：进程被硬杀时靠最后一行定位是哪一轮。 */
+const TURNLOG = String(process.env.CMB21_TURNLOG ?? '');
 /** 冒烟用：每个人物只取前 N 题（按 cutoff 升序），量接口不量成绩。 */
 const N = Number(argOf('n', 0));
 /**
@@ -91,6 +95,20 @@ for (const persona of PERSONAS) {
 	let clock = Date.parse(turns[0]['逻辑时间']);
 	Date.now = () => clock;
 
+	/*
+	 * 检查点（§81.2）：整卷重放要 15 分钟，后台进程到点会被收走，于是每轮都白跑。
+	 * 把「库 + cursor + 时钟」定期存下来，重启时直接从断点接着灌，不再从第 1 轮重放。
+	 * 用 `VACUUM INTO` 存快照（打开中的库直接 copy 可能拿到半页）。
+	 */
+	const CKPT = process.env.CMB21_CKPT ?? '';
+	const ckptDir = CKPT === '' ? '' : path.join(CKPT, persona);
+	if (ckptDir !== '' && fs.existsSync(path.join(ckptDir, 'meta.json'))) {
+		fs.copyFileSync(path.join(ckptDir, 'loom.db'), dbPath);
+		const meta = JSON.parse(fs.readFileSync(path.join(ckptDir, 'meta.json'), 'utf8'));
+		clock = Number(meta.clock);
+		console.error('检查点续跑：cursor', meta.cursor, '时钟', new Date(clock).toISOString());
+	}
+
 	const loom = createLoom({
 		dbPath,
 		config: { consolidation: { triggerTokens: 0 }, retrieval: { solidOverlap: SOLID, ...(TOPIC === '' ? {} : { topicTrigger: TOPIC }) } }
@@ -98,12 +116,47 @@ for (const persona of PERSONAS) {
 	const SID = `s21-${persona}`;
 	let cursor = 0;
 	let previous = null;
+	if (ckptDir !== '' && fs.existsSync(path.join(ckptDir, 'meta.json'))) {
+		cursor = Number(JSON.parse(fs.readFileSync(path.join(ckptDir, 'meta.json'), 'utf8')).cursor);
+	}
+	const saveCheckpoint = () => {
+		if (ckptDir === '') return;
+		fs.mkdirSync(ckptDir, { recursive: true });
+		const target = path.join(ckptDir, 'loom.db');
+		const tmp = `${target}.tmp`;
+		try {
+			/* 另开一条只读连接做快照：引擎那条连接正在用，别在它上面跑 VACUUM。 */
+			const side = new DatabaseSync(dbPath);
+			side.exec('PRAGMA busy_timeout = 8000');
+			fs.rmSync(tmp, { force: true });
+			side.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
+			side.close();
+			fs.rmSync(target, { force: true });
+			fs.renameSync(tmp, target);
+			fs.writeFileSync(path.join(ckptDir, 'meta.json'), JSON.stringify({ cursor, clock, previous }), 'utf8');
+		} catch (error) {
+			console.error('检查点失败', String(error?.message ?? error));
+		}
+	};
 	try {
 		for (const exam of mine) {
+			/*
+			 * 单题容错（§81）：M02 跑到第 43 题（`M02-G011/d045`，cutoff 1504）时进程
+			 * 直接消失、连错误都没打。那种死法不是 JS 异常，试不了就不试——记下来、跳过去，
+			 * 别让一题带走剩下的 34 题。
+			 */
+			if (SKIP.has(exam.id)) {
+				console.error('跳过', exam.id, '（CMB21_SKIP）');
+				continue;
+			}
+			try {
 			for (; cursor < turns.length && turns[cursor]['轮次'] <= exam.cutoff_turn; cursor++) {
 				const turn = turns[cursor];
 				const at = Date.parse(turn['逻辑时间']);
 				clock = at;
+				if (TURNLOG !== '') fs.appendFileSync(TURNLOG, `${persona} 轮次 ${turn['轮次']} cursor ${cursor}\n`, 'utf8');
+				/* 先存再灌：`cursor` 记的是「下一条要灌的」，重启后才不会把同一条灌两遍。 */
+				if (CKPT !== '' && cursor % 25 === 0) saveCheckpoint();
 				await loom.turn(SID, turn['用户消息'], turn['助手回复'], { at });
 				previous = at;
 			}
@@ -132,7 +185,11 @@ for (const persona of PERSONAS) {
 			};
 			rows.push(row);
 			fs.appendFileSync(OUT, JSON.stringify(row) + '\n', 'utf8');
+			saveCheckpoint();
 			if (rows.length % 10 === 0) console.error(persona, rows.length, '题', 'cursor', cursor, '/', turns.length);
+			} catch (error) {
+				console.error('单题失败', exam.id, String(error?.stack ?? error));
+			}
 		}
 	} finally {
 		loom.dispose?.();
