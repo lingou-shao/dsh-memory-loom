@@ -243,10 +243,30 @@ for (const persona of PERSONAS) {
 		const userTurns = live.filter((one) => one.role === "user");
 		const withOverlap = userTurns.map((one) => ({ row: one, weight: overlapOf(one.text) }));
 		const atLeast = (k) => withOverlap.filter((one) => one.weight >= k);
+		/**
+		* 一条原话里，与问句共享的那些词从第一个到最后一个跨多远（字符数）。
+		*
+		* 外部材料说「词距 > 100 就降权、< 20 就加分」，用来杀「A 在开头 B 在结尾」的
+		* 伪命中。能不能用，取决于**真答案**的跨度分布——如果正确答案本身就把两个词
+		* 分在句子两头，这条规则会先把真答案杀掉。
+		*/
+		const spanOf = (text) => {
+			let start = Infinity;
+			let end = -1;
+			for (const token of qwords) {
+				const at = text.indexOf(token);
+				if (at === -1) continue;
+				start = Math.min(start, at);
+				end = Math.max(end, at + token.length);
+			}
+			return end < 0 ? null : end - start;
+		};
 		/** 一条规则的产物：最多 `want` 轮，直接当指针用。 */
 		const delivered = deliveredTurns(exam);
 		const alreadyCovered = [...answerTurns].some((turn) => delivered.has(turn));
 		const seeded = delivered.size === 0 ? 0 : Math.max(...delivered);
+		/** 池子超过 `threshold` 行就要求共享 ≥3 个实词，否则维持 ≥2（外部材料的「防爆阀门」）。 */
+		const adaptive = (threshold) => atLeast(atLeast(2).length >= threshold ? 3 : 2).slice(-3).map((one) => one.row);
 		const rules = {
 			/** 最近一次重叠 ≥2 / ≥3 的轮，再往后再走 8 轮（与产品的链同一套走法）。 */
 			q2: () => (atLeast(2).length ? [atLeast(2).at(-1).row] : []),
@@ -270,7 +290,35 @@ for (const persona of PERSONAS) {
 				const pool = atLeast(2).filter((one) => one.row.turn > seeded);
 				const best = pool.reduce((top, one) => (top === null || one.weight >= top.weight ? one : top), null);
 				return best === null ? [] : [best.row];
-			}
+			},
+			/**
+			* 自适应门限：候选池大就要更高的重叠。
+			*
+			* 外部材料提的那条「防爆阀门」——池子大了说明问句本身泛（「今天」「早上」），
+			* 此时共享 2 个词几乎是偶然。这里按三个阈值各跑一遍，看它到底拦住了什么。
+			*/
+			adapt5: () => adaptive(5),
+			adapt10: () => adaptive(10),
+			adapt20: () => adaptive(20),
+			/**
+			* 词距当硬过滤：跨度超过上限的行直接不要，再从池子里往前补三行。
+			*
+			* 这是外部材料第 3 条的严格实现（「>100 字符降权或丢弃、<20 加分」）。
+			* 只测丢弃那一半——「加分」是重排，重排在 §73 已经量过是零和的。
+			*/
+			span100: () => atLeast(2).filter((one) => (spanOf(one.row.text) ?? 0) <= 100).slice(-3).map((one) => one.row),
+			span40: () => atLeast(2).filter((one) => (spanOf(one.row.text) ?? 0) <= 40).slice(-3).map((one) => one.row),
+			span20: () => atLeast(2).filter((one) => (spanOf(one.row.text) ?? 0) <= 20).slice(-3).map((one) => one.row),
+			/**
+			* 把「自适应」用在词距上，而不是用在重叠门槛上。
+			*
+			* 上面那张表给出的形状：池子小的库（M01，中位 3 行）里过滤词距只掉不掉；
+			* 池子大的库（M02，中位 51 行）里过滤词距 +1/+3。所以自适应该管的不是
+			* 「要不要提高门槛」，而是「要不要按词距筛」。
+			*/
+			mix20: () => (atLeast(2).length >= 20
+				? atLeast(2).filter((one) => (spanOf(one.row.text) ?? 0) <= 40).slice(-3)
+				: atLeast(2).slice(-3)).map((one) => one.row)
 		};
 		const runRule = (name) => {
 			const seeds = rules[name]();
@@ -310,6 +358,19 @@ for (const persona of PERSONAS) {
 				return row === undefined ? 0 : overlapOf(row.text);
 			}),
 			topicRows: atLeast(2).length,
+			/** 话题链实际会追加的那三行：命中/未命中各是什么跨度——词距判据有没有区分力。 */
+			tailRows: atLeast(2).slice(-3).map((one) => ({
+				turn: one.row.turn,
+				hit: answerTurns.has(one.row.turn),
+				weight: one.weight,
+				span: spanOf(one.row.text),
+				length: one.row.text.length
+			})),
+			/** 答案轮自己的跨度：词距判据能留住的真答案占多少。 */
+			answerSpans: [...answerTurns]
+				.map((turn) => live.find((one) => one.turn === turn))
+				.filter((one) => one !== void 0)
+				.map((one) => ({ span: spanOf(one.text), weight: overlapOf(one.text), length: one.text.length })),
 			/** 这一题的答案轮是否已经由 0.2.56 的产物交付（增量分析的分母）。 */
 			alreadyCovered,
 			seeded,
@@ -329,14 +390,14 @@ function report(label, list) {
 	const ceil = (k) => list.filter((one) => Math.max(0, ...one.answerWeights) >= k).length;
 	console.log(`\n--- ${label}：${list.length} 题 ---`);
 	console.log(`  产品锚点命中答案轮 ${list.filter((one) => one.product.hit).length}（${pct(list.filter((one) => one.product.hit).length, list.length)}）`);
-	for (const name of ['q2', 'q3', 'q2tail3', 'q2tail5', 'qmax', 'qmaxAfter']) {
+	for (const name of ['q2', 'q3', 'q2tail3', 'q2tail5', 'qmax', 'qmaxAfter', 'adapt5', 'adapt10', 'adapt20', 'span100', 'span40', 'span20', 'mix20']) {
 		const direct = list.filter((one) => one.rules[name].hit).length;
 		console.log(`  规则 ${name.padEnd(9)} 直取答案轮 ${String(direct).padStart(3)}（${pct(direct, list.length)}）`);
 	}
 	const uncovered = list.filter((one) => !one.alreadyCovered);
 	console.log(
 		`  增量（只在未交付的 ${uncovered.length} 题里数）：` +
-			['q2', 'q2tail3', 'q2tail5', 'qmax', 'qmaxAfter']
+			['q2tail3', 'adapt10', 'span40', 'mix20']
 				.map((name) => `${name} +${uncovered.filter((one) => one.rules[name].hit).length}`)
 				.join('  ')
 	);
@@ -353,6 +414,23 @@ function report(label, list) {
 	/** 候选噪音：每题有多少轮与问句重叠 ≥2 —— 判「按重叠挑行」会不会淹没在闲聊里。 */
 	const counts = list.map((one) => one.topicRows).sort((a, b) => a - b);
 	console.log(`  每题「重叠 ≥2」的轮数：中位 ${counts[counts.length >> 1]}、上四分位 ${counts[(3 * counts.length) >> 2]}、最多 ${counts.at(-1)}`);
+
+	/* 词距：真答案 vs 旁路实际交出去的行，跨度分布差多少。 */
+	const spans = (rows) => rows.map((one) => one.span).filter((one) => one !== null).sort((a, b) => a - b);
+	const med = (arr) => (arr.length === 0 ? '—' : arr[arr.length >> 1]);
+	const tails = list.flatMap((one) => one.tailRows);
+	const hitSpans = spans(tails.filter((one) => one.hit));
+	const missSpans = spans(tails.filter((one) => !one.hit));
+	const ansSpans = spans(list.flatMap((one) => one.answerSpans));
+	console.log(
+		`  词距（共享词首尾跨度，字符）：答案轮中位 ${med(ansSpans)}（n=${ansSpans.length}）；` +
+			`旁路行命中中位 ${med(hitSpans)}（n=${hitSpans.length}）、未命中中位 ${med(missSpans)}（n=${missSpans.length}）`
+	);
+	const over = (arr, n) => `${arr.filter((one) => one > n).length}/${arr.length}`;
+	console.log(
+		`  跨度 >20 的比例：答案轮 ${over(ansSpans, 20)}、命中行 ${over(hitSpans, 20)}、未命中行 ${over(missSpans, 20)}；` +
+			`>100 的比例：答案轮 ${over(ansSpans, 100)}、命中行 ${over(hitSpans, 100)}、未命中行 ${over(missSpans, 100)}`
+	);
 }
 
 for (const persona of [...new Set(rows.map((one) => one.persona))]) {
