@@ -49,7 +49,7 @@
   每轮 prompt ◄── 【记忆索引】钩子清单（快照，约 65 token，正文不进上下文）
               ◄── 【记忆块】偏好 → 计划 → 事实 → 事件 → 印象 → 日记 → 叙事（软 2000 / 硬 3000 token）
                        ▲
-                       │ 四路候选：pinned / FTS strict / FTS relax / 槽位(slot)
+                       │ 五路候选：pinned / FTS strict / FTS relax / 槽位(slot) / 原话(l0)
                        │ 打分：similarity × 双曲衰减 + 情绪 − 层罚，× 时效 × 冲突，下限 0.02
                        │
   模型需要细节 ──► memory_expand(ref) 按 E/F/D/P 编号取回正文，分页不截断
@@ -202,7 +202,7 @@ base  由情绪显著度决定，0.55（中性）～1.0（极强）
 
 **摘抄校验位（v0.2.29）：只记录，不拦截。** 模型抽出的每条事实要求附一句原文摘抄，写入前在本地用字符级比对确认它真的在原文里。三种结局分开记（逐字命中 / 近似命中 / 找不到），但**不因为找不到就丢掉这条事实**——那会让抽取质量差的模型直接失忆。校验位的作用是**事后能算出这个模型在编造的比例**，不是当场执法。
 
-### 2.4 召回：四路候选，两遍词法，一道闸门
+### 2.4 召回：五路候选，两遍词法，一道闸门
 
 ```
 候选来源（按优先级）
@@ -210,6 +210,7 @@ base  由情绪显著度决定，0.55（中性）～1.0（极强）
 ② FTS strict        所有二元组 AND       bm25 归一
 ③ FTS relax         任一命中，有前提      ×0.55，且 overlap ≥ 0.25
 ④ slot              问句点名了主体+属性    0.85（结构匹配，非统计）
+⑤ 原话 l0（v0.2.37） 派生层太瘦才启动      记 0 分，只填空位，给 #L 指针
 
 排序
 score = (similarity × strength + emotion − layerPenalty)
@@ -886,6 +887,23 @@ npm test        # 单元自测
 | `retrieval.rawSearch`                                     | `true`                                         | 派生层太瘦时，直接搜原始对话并返回 `#L` 指针（v0.2.37）。这是唯一一条能命中「抽取器没抽到的那句话」的路径：派生层 37.1% 的定位率，加上它是 88.7%。`false` 让 `memory_search` 的输出与 0.2.36 逐字一致 |
 | `retrieval.rawHits`                                       | `2`                                            | 一次搜索最多补几条原话指针。`0` 关掉整条通道。实测：2 条 → 定位率 88.7%、指针精度 45.4%；3 条 → 91.9% / 33.3%。多给一条只能多救 3 道题，却把一半以上的指针变成噪声，所以默认 2 |
 | `retrieval.rawPreview`                                    | `60`                                           | 指针前显示多少字。指针的目的是让模型判断要不要拉，正文交给 `memory_expand` |
+| `retrieval.residentPreferences`                           | `3`                                            | 常驻偏好区最多几条。`0` 关掉偏好区——注意它与 `facts.kind='preference'` 是两套来源，只调这一项不会让抽取出来的偏好消失（§42 那次踩过） |
+| `retrieval.diaryShare`                                    | `0.4`                                          | 日记在主观层配额里占多大比例                |
+| `retrieval.unconfirmedBelow`                              | `0.6`                                          | 低于此 confidence 的事实渲染成「待确认」。规则路径的抽取写死 `STATED_CONFIDENCE = 0.8`，所以它只对模型那一路报低分的事实生效（§73） |
+| `retrieval.relaxMatch`                                    | `true`                                         | 第二遍 OR。`false` 退回只有严格命中的 0.2.33 行为 |
+| `retrieval.relaxBelow`                                    | `3`                                            | 严格命中少于几条才跑第二遍。调大＝更多放宽，实测那是净负（§58.3） |
+| `retrieval.relaxPenalty`                                  | `0.55`                                         | 放宽命中的分数乘数，结构上不允许反超严格命中 |
+| `retrieval.relaxMinOverlap`                               | `0.25`                                         | 放宽后仍需与问句共享的比例。**分母是整句问句**，长问句天然过不了，所以有关不掉这一条的前提——关掉实测 86.0 → 83.9（§65.5） |
+| `retrieval.solidOverlap`                                  | `3`                                            | 第三条旁路：共享 ≥3 个实词就放行，不除以问句长度（v0.2.55）。`0` 关掉 |
+| `retrieval.topicTail`                                     | `3`                                            | 话题链一次最多追加几条。`0` 关掉这一路           |
+| `retrieval.topicTrigger`                                  | `always`                                       | 话题链触发口径：`always` / `intent`（只对「后来呢」这类问法）。改成 `intent` 会让其余问法少掉这一路 |
+| `retrieval.tailBeyond`                                    | `false`                                        | 追加档能否越过 `limit` 继续填。714 上 +1（540→541），判为不值；要验证 2.1 上某道题会不会回来才开（§79.3） |
+| `retrieval.slotMax`                                       | `12`                                           | 槽位通道最多给几个候选。`0` 关掉槽位             |
+| `retrieval.slotSimilarity`                                | `0.85`                                         | 槽位结构匹配的门槛                       |
+| `retrieval.clockRules`                                    | `true`                                         | 「现在这点正在生效哪条规矩」这一路（v0.2.60，§83.3①）。按钟点解析规矩并与 `now` 比一次，命中才追加一行；`false` 让块回到 0.2.59 的样子 |
+| `retrieval.clockMax`                                      | `2`                                            | 上述这一路一次最多追加几行。`0` 等价于关掉（v0.2.60） |
+| `retrieval.rareTail`                                      | `true`                                         | 与问句共享一个**稀有实词**（`l0` 里 DF ≤ 3）的行进追加档（v0.2.60，§83.3③）。只追加、不改排序；`false` 后 `P17-CASE-007/d15` 回到未覆盖 |
+| `retrieval.planOutcome`                                   | `true`                                         | 「计划 → 结局」（v0.2.60，§83.3④）：问进度时从计划行往后找结案那句，进追加档。`false` 关掉 |
 | `retrieval.layerPenalty.*`                                | `fact 0 / event .04 / subjective .02 / l0 .15` | 层级成本惩罚                        |
 | `diary.mirror`                                            | `true`                                         | 是否把日记导出成人能直接读的 Markdown（Q63，v0.2.9 新增） |
 | `diary.mirrorDir`                                         | `diary`                                        | 镜像目录。相对路径按**数据库所在目录**解析，不写死任何绝对路径 |
@@ -1157,7 +1175,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 
 注释里有大量 `Q11` / `Q20` / `Q23` / `Q43` / `Q56` / `Q61` / `Q62` / `Q63` / `Q64` / `Q65` / `Q66` 这样的引用。它们是早期设计问答的编号（问题 11、20……），指向"这个参数为什么是这个值"的原始决策记录。**编号本身没有索引了**，但每处引用旁边的注释都写清了理由，按注释读即可。
 
-逐版的施工记录也在那里：[`docs/design.md`](https://github.com/lingou-shao/dsh-memory-loom/blob/main/docs/design.md)（477 KB，不随 npm 包发布，只在仓库里）。它按版本顺序记录了 v0.2.9 到 v0.2.60 每一版修了什么、踩到什么——**读它之前先读本文的 §3**，否则容易把"某一版的补丁"误当成"架构的一部分"。本文的 §1.1、§3 的绝大多数事实都是从那份记录里核对出来的。
+逐版的施工记录也在那里：[`docs/design.md`](https://github.com/lingou-shao/dsh-memory-loom/blob/main/docs/design.md)（608 KB，不随 npm 包发布，只在仓库里）。它按版本顺序记录了 v0.2.9 到 v0.2.60 每一版修了什么、踩到什么——**读它之前先读本文的 §3**，否则容易把"某一版的补丁"误当成"架构的一部分"。本文的 §1.1、§3 的绝大多数事实都是从那份记录里核对出来的。
 
 ### 10.4 这份文档自身的边界
 

@@ -4,6 +4,8 @@
 
 **阅读约定**：本文按时间累加，前面章节写的是当时的判断，后面章节可能有修正。凡是前文提出、后文解决的问题，都在原处标了方括号标记并指向对应章节；仍未解决的统一收在 **§13**。看到前文的限制描述时，先看方括号里的标记，不要当成现状。
 
+**想查配置项、默认值、横切机制、基准语料出处**，直接跳 **§84**。那一章是规格层（键 → 默认值 → 关掉会怎样 → 语料在哪），不是按时间累加的记录；前面 83 章是决策与实验过程，同一个键可能在五个章节里被改过五次。
+
 | 标记                      | 含义                           |
 | ----------------------- | ---------------------------- |
 | `【vX 已修复】` / `【vX 已解决】` | 曾经是真问题，已在标注版本修掉；原处保留问题描述作为记录 |
@@ -7274,3 +7276,176 @@ surface 指标涨了不等于答对（§81.5 罚过一次）。所以把变好�
 `work/e2e-0260/`（11 题作答包与答案）、`loom-surface-0260.jsonl` / `-summary.json`。
 脚本：`bench-hmb/probe-miss.mjs`、`bench-hmb/eval-miss-quick.mjs`、
 `bench-hmb/diag-miss-rank.mjs`；探针 `loom-e2e/probe-miss-channels.mjs`。
+
+---
+
+## 84. 配置契约与工程规格（2026-11-11，v0.2.60）
+
+这一章不是新的判断，是把散在代码里的**规格**补成一份能查的表。
+
+起因是一次外部对照（2026-11-11，口径：`README.md` 140,568 B / 本文 622,581 B（补这一章之前）/ `lib/index.js`
+657,533 B / `package.json` 0.2.60）量出三组缺口：**109 个配置键里 34 个在本文零命中**（补完后 0）、
+**24 个 region 里 21 个零命中**、**123 处文件引用里 45 处在仓库内找不到**。结论不是「记录
+不够」——本文开头「阅读约定」已经写明它是按时间累加的决策记录。缺的是另一层东西：**规格**。
+决策层是完整的（23 张表全部命中、16 个工具与 README 一致），规格层基本没有。
+
+所以这一章补三样：配置契约、横切机制、语料出处。**不改变任何行为，只改文档。**
+
+### 84.1 口径（可复算）
+
+| 项 | 取法 |
+|---|---|
+| 配置键 | 从 `const Config$1 = z.object` 到 `function toEngineConfig` 之间的 `^\t+key: z.`，去重 **109** 个 |
+| 命中 | 对 `README.md` / `docs/design.md` 做全文子串计数；零命中只当线索，再回读上下文确认 |
+| 结论（补这一章**之前**） | 本文零命中 **34** 键；README 全文零命中 **7** 键；两边都零 **1** 键（`clockMax`）。补完后三项都是 **0**，口径不变，照上表重跑即得 |
+| region | `^//#region` 取到的名字是**源文件路径**（`src/engine/*.ts` 这类，单文件构建前的分区名），本文零命中 21/24 |
+| 引用可复现性 | 本文里反引号包起来的文件路径 **123** 个唯一值，按文件名建索引在全仓找，**78** 能找到、**45** 找不到 |
+
+两点要说清，免得把口径当结论：
+
+- 「本文零命中 34 键」不等于 34 个机制没记录。多数是**零件**（`gapMinutes`、`softSalience`、
+  `maxCharsPerPack`）——它们的机制在 §44、§51 这些章节里以行为写过了，只是没写名字。
+  真正一条都没写的是横切那几项（见 84.3）。
+- README §7 的**表**只覆盖 30 个 retrieval 键里的 13 个。差的 17 个不是无关紧要：它们是
+  第二遍放宽（4 个）、话题链（2 个）、槽位（2 个）、追加档与三条新通道（6 个）、配额与
+  阈值（3 个）。做 A/B 时想单独关掉一路，只能读代码。**v0.2.60 已把这 17 行补进 §7。**
+
+### 84.2 retrieval 分区全表
+
+30 个键，`layerPenalty` 下还有 4 个子键。**「关掉」一列是给 A/B 用的**：写 `0` / `false`
+之后输出会回到哪一版的样子，或者为什么关不掉。
+
+| 键 | 默认 | 关掉 / 调大之后 |
+|---|---|---|
+| `budgetTokens` | `2000` | 记忆块软目标。调小先挤掉日记与叙事，再挤事件 |
+| `hardCapTokens` | `3000` | 块硬上限，超了**截断**而不是重排。这是唯一一处宁可少给也不超预算的地方 |
+| `subjectiveShare` | `0.25` | 主观层配额。`0` 让偏好/印象/日记全部消失（它们不参与事实排序，没有别的入口） |
+| `maxItems` | `20` | 事实+事件条数上限（v0.2.19 起不含主观项） |
+| `residentPreferences` | `3` | 常驻偏好条数。**`0` 不会让抽取出来的偏好消失**——偏好区有两个来源（`preferences` 表与 `facts.kind='preference'`），§42 踩过「调一个空表上的配置项」 |
+| `maxPlans` | `3` | 计划区条数。`0` 关掉计划区，计划也不再降级成事实显示 |
+| `planNudgeDays` | `2` | 同一条逾期计划两次追问的间隔。`0` 只问一次 |
+| `diaryShare` | `0.4` | 日记在主观配额里的比例 |
+| `minScore` | `0.05` | 低于此分不注入 |
+| `conflictPenalty` | `0.85` | 「可能已过时」的乘数 |
+| `unconfirmedBelow` | `0.6` | 低于此 confidence 标「待确认」。规则路径写死 `STATED_CONFIDENCE = 0.8`（§73），所以它只对模型那一路生效 |
+| `relaxMatch` | `true` | 第二遍 OR。`false` 退回 0.2.33 的只严格命中 |
+| `relaxBelow` | `3` | 严格命中少于此才放宽。调大＝更多放宽，实测净负（§58.3） |
+| `relaxPenalty` | `0.55` | 放宽命中的分数乘数，结构上不允许反超严格命中 |
+| `relaxMinOverlap` | `0.25` | 放宽所需的共享比例。**分母是整句问句**，长问句天然过不了；关掉实测 86.0 → 83.9（§65.5），所以它不能关 |
+| `solidOverlap` | `3` | 第三条旁路：共享 ≥3 个实词即放行，不除以问句长度（v0.2.55）。`0` 关掉 |
+| `topicTail` | `3` | 话题链一次最多追加几条。`0` 关掉这一路 |
+| `topicTrigger` | `always` | `intent` 只对「后来呢」类问法触发，其余问法会少掉这一路 |
+| `tailBeyond` | `false` | 追加档能否越过 `limit` 继续填。714 上 +1（540→541），判为不值（§79.3） |
+| `slotMax` | `12` | 槽位候选上限。`0` 关掉槽位通道 |
+| `slotSimilarity` | `0.85` | 槽位结构匹配门槛 |
+| `toneHint` | `true` | 事件行后的语气标注。只标不中性的一条约 3 token |
+| `quoteInSearch` | `true` | fact 行印成 `「原话」｜摘要`。`false` 让输出与 0.2.33 逐字一致 |
+| `rawSearch` | `true` | 原话通道总开关。`false` 让 `memory_search` 与 0.2.36 逐字一致 |
+| `rawHits` | `2` | 一次补几条原话指针。`0` 等价于关通道；3 条能把定位率抬到 91.9%，但精度从 45.4% 掉到 33.3% |
+| `rawPreview` | `60` | 指针前字数 |
+| `clockRules` | `true` | 「现在这点正在生效哪条规矩」（§83.3①）。`false` 让块回到 0.2.59 |
+| `clockMax` | `2` | 上述一路一次最多追加几行。`0` 等价于关掉。**这是唯一一个本文与 README 之前都没写过的键** |
+| `rareTail` | `true` | 共享一个 DF ≤ 3 的实词进追加档（§83.3③）。只追加不改排序；`false` 后 `P17-CASE-007/d15` 回到未覆盖 |
+| `planOutcome` | `true` | 计划 → 结局（§83.3④）。`false` 关掉 |
+| `layerPenalty.fact / .event / .subjective / .l0` | `0 / .04 / .02 / .15` | 层级成本。事实层是基准 0；原话层最贵，因为它最占字数 |
+
+**四条新通道（v0.2.60）都可以单独关**，这是它们能被否掉、也能被复算的前提。§83 正文只写了
+机制名，没写默认值、上限、关闭方式——上面四行补的就是这个。
+
+#### 其余分区的键（检索之外）
+
+同样只列「不查代码就不知道」的那些：全仓 109 个键里，这一节加上 84.2 覆盖了所有在本文
+原本零命中的项。
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `ownerName` | `主人` | master 的称呼，用在事件抽取提示与「关系印象」里 |
+| `capture` | `true` | `false` 等于不写 L0，插件退化成只读 |
+| `toolPrefix` | `memory_` | 见 84.3 |
+| `maintenanceIntervalSeconds` | `60` | 后台维护轮询间隔，不是整合间隔 |
+| `consolidation.enabled` | `true` | 关掉只剩规则路径，事实不再被模型改写 |
+| `consolidation.provider` | 空 | 空＝用宿主默认模型；填了才走指定 |
+| `consolidation.sampleK` / `.sampleM` | `20` / `100` | 抽样复核的 k 与 m（§37） |
+| `consolidation.coldStartFacts` | `50` | 冷启动按条数触发，不是按时间 |
+| `emotion.subjectiveWeight` | `1` | 主观层在排序里的权重 |
+| `emotion.l1Weight` | `.5` | L1 层在情绪分里的权重 |
+| `decay.sMaxMultiplier` | `50` | 强度上限倍数——一条事实最多能「多响」 |
+| `decay.retrievalBoost` | `.25` | 每被取用一次加多少强度（复述效应） |
+| `segmentation.gapMinutes` | `30` | 隔这么久算新话题 |
+| `segmentation.hardTopicJaccard` | `.12` | 硬切分的词面相似度下限 |
+| `segmentation.softSalience` / `.softDelta` / `.microSalience` | `.7` / `.25` / `.55` | 软切分与微切分的显著性门槛与增量 |
+| `segmentation.minSecondary` | `5` | 次要话题至少几轮才立段 |
+| `roles.promotionVisits` | `3` | **当前不生效**：转正一律走 `memory_identity approve`，没有按访问次数自动晋升的路径 |
+| `roles.demotionDays` | `5` | 朋友多久不活动回落成路人 |
+| `backup.keep` | `7` | 快照保留几份 |
+| `privacy.masterCrossIdentity` / `.crossIdentityRaw` | `true` / `false` | 主人可跨用户查 L1/L2；原话层永不跨身份 |
+| `prompt.personaOrder` / `.memoryOrder` / `.protocolOrder` / `.indexOrder` | `10` / `900` / `930` / `895` | 四块在 prompt 里的排序 |
+| `index.rebuildMinutes` / `.includeAssistant` | `5` / `true` | 索引重建节流；助手轮是否进索引 |
+
+### 84.3 横切机制规格
+
+这些不在任何检索章节里，但每一条都会改行为，而且**失效时基本不报错**。
+
+| 机制 | 标识符 / 配置 | 值 | 行为 |
+|---|---|---|---|
+| 写入前脱敏 | `SECRET_PATTERNS` | 9 条 | 私钥块、`sk-/rk-/pk-` 形式的 key、Bearer、手机号、身份证、卡号等，在进 L0 **之前**替换成 `[redacted …]`。逐条是 `pattern` + `mask` 两字段，加一条只改这个数组 |
+| trace 留存 | `TRACE_RETENTION_DAYS` | `14` | 每次整合顺手 `pruneTraces`，超期删。查「这条事实从哪轮来」只能回溯两周 |
+| 去重清扫 | `DEDUP_SWEEP_DAYS` | `30` | 按 `meta.dedup.sweptAt` 节流，不是每轮扫 |
+| 访客清理 | `roles.visitorPurgeHours` | `48` | 路人原始对话保留时长。**这是隐私承诺里唯一有硬时限的一条** |
+| 日记镜像 | `diary.mirrorDays` | `14` | 装载时回写最近 14 个「有日记的日子」，不是全部 |
+| 整合总超时 | `consolidation.maxRunSeconds` | `180` | 一次整合的墙钟上限，超时保留已写部分 |
+| 单项超时 | `consolidation.itemTimeoutSeconds` | `30` | 单条抽取/叙事的时间上限 |
+| 块硬上限 | `retrieval.hardCapTokens` | `3000` | 见 84.2 |
+| 槽位上限 | `retrieval.slotMax` | `12` | 见 84.2 |
+| schema 版本 | `SCHEMA_VERSION` | `7` | 迁移的唯一凭证。**v8 是撤回的**：§56.4 写明「代码、schema v8、配置项、探针全部撤回」，看到 v8 描述不要当成现状 |
+| 工具前缀 | `toolPrefix` | `memory_` | 改前缀会重命名全部 16 个工具与诊断输出（§41）。`TOOL_PREFIX_PATTERN` 校验必须小写字母开头 |
+
+### 84.4 基准语料出处（读数为什么不能在本仓库重跑）
+
+本文引用的 123 个路径里，**78 个在仓库内能对应，45 个不能**：44 个是语料与产物，1 个是
+已删的探针 `probe-quote-in-search.mjs`（功能并进 `probe-quote-render.mjs` 的渲染用例）。
+
+| 读的是哪套 | 语料在哪 | 脚本 | 产物 |
+|---|---|---|---|
+| 714 全卷（内容口径，六人物 × 全时点） | `chat-memory-bench/datasets/natural-timegrid-20261101-v2/`（官方 `Ornn8/chat-memory-benchmark` 的本地副本 + 我们生成的题库） | `bench-hmb/surface-coverage.mjs` | `loom-surface-<版本>.jsonl` + `-summary.json` |
+| 62 题（位置口径，金标在第几条指针） | 同上，题目自带 `cutoff_turn` 与证据轮 | `bench-hmb/retrieval-hit.mjs` | `loom-retrieval-hit.json` |
+| 2.1 开发集（212 题 = 200 main + 12 control） | `chat-memory-bench/benchmark-2.1/dataset/exam-inputs.jsonl`（封存集 76 题不公开） | `bench-hmb/surface-21.mjs` → `score-21.mjs` | `surface-21-*.jsonl`、`judgments-21-*.jsonl` |
+| 端到端判分 | 同上 | `make-answer-input.mjs` → 作答 → `make-judge-batches.mjs` / `make-judge-21.mjs` → `grade.py` / `score-21.mjs` | `answers-*.jsonl`、`scored.jsonl` |
+| 改判据时的秒级复算 | 由题面现灌 | `probe-miss.mjs`（灌库 + 抓三段 + `VACUUM INTO` 快照）→ `eval-miss-quick.mjs` | 每题一个 `.json` + `.db` 快照 |
+
+三条约束写在这里，是因为它们决定「文档里的数字别人能不能验」：
+
+1. **语料不入库**：200 MB 以上，且人物是对谈式的、含生活细节。仓库只放脚本。
+2. **路径是写死的**：`bench-hmb/*.mjs` 里 55 处 `C:/Users/shaoz/Desktop/chat-memory-bench`。
+   换机器要改这 55 处，不是改一个常量——这也是它一直没进 `devDependencies` 的原因。
+3. **两套题不能互比**：714 与 2.1 的题面、判分口径、语料全不同。任何跨套比较都是错的，
+   §81.6 已经因为这个把一次「涨了」改判成「平」。
+
+### 84.5 版本口径与发布清单
+
+版本号分布在五处，`check-docs.mjs` 只查前三处：
+
+| 位置 | 内容 |
+|---|---|
+| `package.json` `version` | `0.2.60` |
+| `lib/index.js` `BUILD_VERSION` | `memory_doctor` 首行的唯一来源 |
+| README §6.2 Release 直链 + 离线安装示例 | 两处包名都必须等于当前版本（脚本会扫全部 `.tgz` 字样） |
+| README §6.5「运行 0.2.6x · 库 schema v7」示例 | **脚本不查**，换版靠人 |
+| `docs/design.md` 章节标题里的版本 | **脚本不查**，§83 标 v0.2.60 而代码还是 0.2.59 这种错只能靠人 |
+
+**`memory_doctor` 首行证明的是「跑的是哪版代码」，不是「仓库推没推」。** 2026-11-11 那次外部
+对照把「远端 main 落后 3 个提交」判成「代码跑着 v0.2.60 的行为却自报 0.2.59」——本地早已
+`BUILD_VERSION = "0.2.60"`，只是没 push。**版本对不上时先 `git status` 和 `git log origin/main..HEAD`，
+别先怀疑代码。**
+
+发布顺序（每版都一样）：改五处版本 → `node .github/scripts/check-docs.mjs` →
+`node test/selftest.mjs` → 提交 → 打 tag `v<版本>` → `npm pack` → 写 `.github/releases/v<版本>.md`。
+
+### 84.6 有意不覆盖的两类
+
+| 不覆盖 | 为什么 |
+|---|---|
+| 24 个 region（`src/engine/time.ts` 这类名字） | 它们是**单文件构建前的分区名**，不是模块边界。本文按主题组织（检索/抽取/渲染/维护），按文件组织会让「同一条决策跨越三个文件」这种情况无处可放。改代码时从 `//#region` 定位比从文档定位准 |
+| 132 个大写常量里的 75 个零命中 | 多数是零件（`CJK_RUN`、`SLOT_NAME_MAX`、`INTAKE_*` 一族）。**行为阈值**那类已经带值写进正文：`RARE_DF`(§83)、`CHAIN_WINDOW`/`SAME_EVENT_OVERLAP`(§63)、`relaxMinOverlap`(§58.3)、`STATED_CONFIDENCE`/`unconfirmedBelow`(§73) |
+
+数据模型这一层不缺：23 张表在本文全部有记录。16 个工具与 README 的工具表一一对应；本文正文点名的是 14 个，`memory_persona` 与 `memory_identity` 从上线起就只写在 README §9，这里补一句。缺的一直是规格层。
