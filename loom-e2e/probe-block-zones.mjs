@@ -22,6 +22,17 @@ import { createLoom } from './harness.mjs';
 
 const SESSION = 'probe-zone-session';
 const root = mkdtempSync(join(tmpdir(), 'loom-zones-'));
+/*
+ * 时钟固定成上午十点（§91.5）。
+ *
+ * [4] 断言「无关话题下偏好区为空」，可它的偏好里有「不接受在晚上十点后收到
+ * 消息」——22 点之后跑，钟点规矩（`clockRules`，§83）会把它当「现在正在生效
+ * 的规矩」追进偏好区，于是这一项每天都随本机钟点翻脸：白天绿、深夜红。
+ * 一条断言不应该依赖运行时刻；这里把 `Date.now` 钉住，让它只在被断言的行为
+ * 变化时才红。
+ */
+const REAL_NOW = Date.now;
+Date.now = () => Date.parse('2026-04-06T10:00:00+08:00');
 
 let pass = 0;
 let fail = 0;
@@ -143,6 +154,7 @@ try {
     loom.dispose();
   }
 } finally {
+  Date.now = REAL_NOW;
   rmSync(root, { recursive: true, force: true });
 }
 
