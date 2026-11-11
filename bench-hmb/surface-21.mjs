@@ -40,8 +40,14 @@ const N = Number(argOf('n', 0));
 /**
  * 闸门的第三条旁路：共享几个内容词就放行（0 = 关闭，见 lib 的 `solidOverlap`）。
  * 它只能在 `createLoom` 时给 —— 运行时改 `loom.settings` 不会到达引擎（§70.7）。
+ *
+ * **只显式给了 `--solid` 才覆盖**（§88.2 第 6 条）：产品默认是 3，而这一行原来写的是
+ * `argOf('solid', 0)`——于是不带这个参数跑出来的每一次取面，量的都是「关掉第三条旁路」
+ * 的配置，包括 0.2.61 那张 132/190。同一件事 `surface-coverage.mjs` 与
+ * `retrieval-hit.mjs` 早就写对了（`process.argv.includes('--solid') ? ... : {}`），
+ * 只有这一处漏了。实测两档差 3 题（132 → 135），见 §89.4。
  */
-const SOLID = Number(argOf('solid', 0));
+const SOLID = process.argv.includes('--solid') ? Number(argOf('solid', 3)) : null;
 /** 话题链入口（§79）：`--topic always` 每次检索都跑。空 = 用产品默认（只看意图）。 */
 const TOPIC = argOf('topic', '');
 
@@ -111,7 +117,7 @@ for (const persona of PERSONAS) {
 
 	const loom = createLoom({
 		dbPath,
-		config: { consolidation: { triggerTokens: 0 }, retrieval: { solidOverlap: SOLID, ...(TOPIC === '' ? {} : { topicTrigger: TOPIC }) } }
+		config: { consolidation: { triggerTokens: 0 }, retrieval: { ...(SOLID === null ? {} : { solidOverlap: SOLID }), ...(TOPIC === '' ? {} : { topicTrigger: TOPIC }) } }
 	});
 	const SID = `s21-${persona}`;
 	let cursor = 0;
