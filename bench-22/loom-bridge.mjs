@@ -101,14 +101,25 @@ function state(fn) {
 	}
 }
 
-function restore(token) {
+async function restore(token) {
 	const entry = snaps.get(token);
 	if (entry === undefined) throw new Error(`没有快照 ${token}`);
 	if (!fs.existsSync(entry.file)) throw new Error(`快照 ${token} 的文件已经没了`);
 	const target = path.join(workDir, `work-${token}.db`);
-	fs.rmSync(target, { force: true });
+	/* 先关连接再删文件：同一道题连续 rewind 到同一个 token 时目标文件就是当前在用的
+	 * 那个，Windows 上会 EBUSY（unlink 不放行打开中的句柄）。第一次跑自然榜就是这么
+	 * 挂的——`work-4.db` 还被 loom 开着，`rmSync` 直接抛。 */
 	loom?.dispose?.();
 	loom = null;
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		try {
+			fs.rmSync(target, { force: true });
+			break;
+		} catch (error) {
+			if (error?.code !== 'EBUSY' && error?.code !== 'EPERM') throw error;
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+	}
 	fs.copyFileSync(entry.file, target);
 	dbPath = target;
 	loom = createLoom({ dbPath, config: CONFIG() });
@@ -156,8 +167,8 @@ const ops = {
 		 * 所以对外只能报一个**幂等**的量。快照号留在 `snap` 里给 rewind 用。 */
 		return { token: fed, snap: snapshot() };
 	},
-	rewind(msg) {
-		restore(Number(msg.snap));
+	async rewind(msg) {
+		await restore(Number(msg.snap));
 		return { token: fed };
 	},
 	/**

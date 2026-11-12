@@ -137,7 +137,11 @@ def main():
 				last = now
 			ret = system.retrieve(item["question"], item["now"], item["cutoff_turn"], item["id"])
 			prompt_sq = squash(ret.prompt)
-			ev = key[item["id"]].get("evidence_turns") or []
+			# `legacy` 那一类的 177 道题 `evidence_turns` 是空的，坐标在 `anchors[].last_turn` 上。
+			# 只看 evidence_turns 会把它们当成「零共享」，第一版就是这么读错的（0/103）。
+			ev = key[item["id"]].get("evidence_turns") or [
+				a["last_turn"] for a in key[item["id"]].get("anchors") or [] if a.get("last_turn")
+			]
 			hit = tot = 0
 			for t in ev:
 				row = turns.get(t)
@@ -156,10 +160,14 @@ def main():
 					"block_lines": ret.meta.get("block_lines", 0),
 					"leak": [t for t in ret.used_turns if t > item["cutoff_turn"]],
 					"n_evidence": len(ev),
+					"ev_source": "turns" if key[item["id"]].get("evidence_turns") else "anchors",
 					"ev_hit": hit,
 					"ev_total": tot,
 					"cover_full": bool(tot) and hit == tot,
 					"cover_any": bool(hit),
+					# 整段提示词一起落盘：换判据（窗长、覆盖口径、加新指标）就能离线重算，
+					# 不用再赌一次 55 分钟的入库。809 题约 1.4 MB。
+					"prompt": ret.prompt,
 			}
 			rows.append(row_out)
 			out.write(json.dumps(row_out, ensure_ascii=False) + "\n")

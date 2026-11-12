@@ -90,6 +90,10 @@ def main():
 	probes = jl(os.path.join(DATA, "natural", "natural-probes-dev.jsonl"))
 	key = {k["id"]: k for k in jl(os.path.join(DATA, "natural", "natural-key-dev.jsonl"))}
 	probes = [p for p in probes if p["id"] in key]
+	# B 档（19 个）是「现场多轮」：探针要接上系统自己的回复再往下问，离线和真值都
+	# 拿不到那几句回复，所以只跑 A 档（76 个）。B 档留给真跑（要答题模型）。
+	skipped = [p for p in probes if p["tier"] != "A"]
+	probes = [p for p in probes if p["tier"] == "A"]
 	hist = {}
 	for p in ("M01", "M02"):
 		hist[p] = [
@@ -161,6 +165,7 @@ def main():
 		for row in rows:
 			fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+	print(f"（跳过 B 档 {len(skipped)} 个：需要系统自己的回复）", flush=True)
 	print(f"\n=== 汇总（{len(rows)} 个探针，{time.time() - started:.0f}s）===", flush=True)
 	for persona in ("M01", "M02"):
 		sub = [r for r in rows if r["persona"] == persona]
