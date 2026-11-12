@@ -55,7 +55,10 @@ const RETRIEVAL = {
   ...(process.argv.includes('--solid') ? { solidOverlap: argOf('solid', 3) } : {}),
   // 话题链的入口判据（§79）：`--topic always` 让每次检索都跑，不只在问进度时。
   // 注意 `argOf` 会转数字，字符串选项要自己取。
-  ...(process.argv.includes('--topic') ? { topicTrigger: String(process.argv[process.argv.indexOf('--topic') + 1] ?? 'always') } : {})
+  ...(process.argv.includes('--topic') ? { topicTrigger: String(process.argv[process.argv.indexOf('--topic') + 1] ?? 'always') } : {}),
+  // 常驻块里的「今天该做的事」（§100）。产品默认已打开；`--no-duetoday` 复现旧读数。
+  ...(process.argv.includes('--duetoday') ? { dueToday: true } : {}),
+  ...(process.argv.includes('--no-duetoday') ? { dueToday: false } : {})
 };
 
 for (const need of [path.join(DS, 'exam-inputs.jsonl'), path.join(BENCH, 'grading', 'evidence.jsonl')]) {

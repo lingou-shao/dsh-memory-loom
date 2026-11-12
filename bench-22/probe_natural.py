@@ -55,7 +55,17 @@ MEM_TOK_PER_CHAR = 0.70
 FLASH_IN_PER_MTOK = 1.296
 WINDOW = 8
 # 证据行长这样：`- 第1347轮 2026-10-03 05:57 user：我拔的是左下那颗…`
-EVIDENCE_LINE = re.compile(r"user[:：]\s*(.+)$")
+#
+# 前缀里的角色名有**四种**写法（dev key 95 题共 269 行带前缀）：
+#   `user：` 152 行 / `用户：` 68 行 / `assistant：` 28 行 / `小满：` 21 行
+# 后两种是助手轮，角色名一个用英文一个用人物名。按角色名枚举必然漏，所以按**结构**
+# 认前缀：第N轮 + 日期 + 时刻 + 任意角色名 + 冒号。
+#
+# 漏掉任何一种是同一个病：证据串带着「第4193轮 2027-01-29 22:22 用户：」一起进窗口
+# 比较，前缀里的**日期**会撞上提示词里的任意日期，把没命中的题算成命中。这个 bug 已经
+# 犯了两次（只认 `user：` 漏 27 题里的 5 题；只认中英文角色名还漏 49 行、32 题）。
+PREFIX = re.compile(r"^第\d+轮\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+[^\s:：]+[:：]\s*(.+)$")
+EVIDENCE_LINE = re.compile(r"(?:user|assistant|用户|助手)\s*[:：]\s*(.+)$")
 
 # ── 看门狗 ──────────────────────────────────────────────────────────────
 # 已经两次「跑了几十分钟才发现读数全错」：§96 的轮次重号（63/76 题中招），
@@ -111,13 +121,13 @@ def windows(text, size=WINDOW):
 
 
 def evidence_texts(evidence):
-	"""把 `evidence` 里带 `user：` 的行切出来，其余（F1/F2 事实行）也当成证据。"""
+	"""把 `evidence` 里带轮次前缀的行切出正文，其余（F1/F2 事实行）也当成证据。"""
 	out = []
 	for line in (evidence or "").splitlines():
 		line = line.strip().lstrip("-").strip()
 		if not line:
 			continue
-		m = EVIDENCE_LINE.search(line)
+		m = PREFIX.match(line) or EVIDENCE_LINE.search(line)
 		if m:
 			out.append(m.group(1).strip())
 			continue
@@ -186,6 +196,7 @@ def main():
 			log.flush()
 
 	rows = []
+	bad_parse = 0
 	started = time.time()
 	personas = ("M01", "M02") if args.persona == "both" else (args.persona,)
 	for persona in personas:
@@ -216,6 +227,11 @@ def main():
 			prompt_sq = squash(ret.prompt)
 			k = key[p["id"]]
 			evs = evidence_texts(k.get("evidence"))
+			# 证据串如果还带着「第N轮 20xx-xx-xx 用户：」这一截，说明解析没吃掉前缀：
+			# 那串里的**日期**会撞上提示词里任意一个日期，把没命中算成命中（实测 5 题）。
+			# 这不是读数偏低或偏高，是读数没有意义，所以当场记账、跑完必须为 0。
+			if any(("用户：" in e) or ("user：" in e) or e.startswith("第") for e in evs):
+				bad_parse += 1
 			hit = tot = 0
 			ev_rows = []
 			for ev in evs:
@@ -294,6 +310,8 @@ def main():
 
 	say(f"（跳过 B 档 {len(skipped)} 个：需要系统自己的回复）")
 	say(f"\n=== 汇总（{len(rows)} 个探针，{time.time() - started:.0f}s）===")
+	if bad_parse:
+		say(f"  **证据解析失败 {bad_parse} 题**：那些题的命中数是假的，先修 `evidence_texts`")
 	for persona in ("M01", "M02"):
 		sub = [r for r in rows if r["persona"] == persona]
 		if not sub:
@@ -314,7 +332,7 @@ def main():
 				)
 	if log:
 		log.close()
-	return 0
+	return 3 if bad_parse else 0
 
 
 if __name__ == "__main__":

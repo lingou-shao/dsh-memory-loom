@@ -49,7 +49,11 @@ const RETRIEVAL = {
   // 话题链的入口判据（§79）：`--topic always` 让每次检索都跑，不只在问进度时。
   ...(process.argv.includes('--topic') ? { topicTrigger: argOf('topic', 'always') } : {}),
   // 旁路行能不能撑破 `limit`（§79）：默认只能填空位。
-  ...(process.argv.includes('--tailbeyond') ? { tailBeyond: true } : {})
+  ...(process.argv.includes('--tailbeyond') ? { tailBeyond: true } : {}),
+  // 常驻块里的「今天该做的事」（§100）。产品默认已打开；`--no-duetoday` 用来复现
+  // 打开之前的读数（714 块 132 / 并 690）。
+  ...(process.argv.includes('--duetoday') ? { dueToday: true } : {}),
+  ...(process.argv.includes('--no-duetoday') ? { dueToday: false } : {})
 };
 
 for (const need of [

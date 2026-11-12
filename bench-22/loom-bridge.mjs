@@ -67,7 +67,24 @@ const fedOf = new Map();
 /** 快照序号 → { file, fed }。rewind 只认序号。 */
 const snaps = new Map();
 let workDir = '';
-const CONFIG = () => ({ consolidation: { triggerTokens: 0 } });
+/**
+ * 基准跑批时的产品配置。
+ *
+ * `LOOM_CONFIG` 是一个 JSON，深一层合并进来，用来**在不改产品默认值的前提下**
+ * 打开某一条通道做 A/B。默认值是要给真实用户看的，不能因为一次实验就翻——上一版
+ * 就是先翻了默认再量，量完还得翻回去，中间任何一次跑批都是在测一个假的产品。
+ */
+const CONFIG = () => {
+	const base = { consolidation: { triggerTokens: 0 } };
+	if (!process.env.LOOM_CONFIG) return base;
+	const extra = JSON.parse(process.env.LOOM_CONFIG);
+	return {
+		...base,
+		...extra,
+		retrieval: { ...(base.retrieval ?? {}), ...(extra.retrieval ?? {}) },
+		consolidation: { ...base.consolidation, ...(extra.consolidation ?? {}) },
+	};
+};
 /**
  * 每轮之后等几个 15 ms 的 macrotask。harness 缺省 4（60 ms），重放一万两千轮
  * 就是 **十二分钟纯睡眠**——2026-11-12 自然榜跑 43 分钟，77% 在这里。
