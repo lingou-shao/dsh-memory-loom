@@ -25,17 +25,30 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-HARNESS = os.environ.get(
-	"BENCH22_HARNESS", os.path.join(HERE, "..", "..", "cmb-2.2", "benchmark-2.2", "harness")
-)
-sys.path.insert(0, os.path.abspath(HARNESS))
+
+
+def _pick(env, *parts):
+	"""题库 / harness：环境变量 > 仓库旁 > 桌面那份（和 `probe_natural.py` 同一套兜底）。"""
+	cands = []
+	if os.environ.get(env):
+		cands.append(os.environ[env])
+	cands.append(os.path.join(HERE, "..", "..", "cmb-2.2", *parts))
+	cands.append(os.path.join(os.path.expanduser("~"), "Desktop", "cmb-2.2", *parts))
+	for c in cands:
+		if os.path.isdir(c):
+			return os.path.abspath(c)
+	return os.path.abspath(cands[-1])
+
+
+HARNESS = _pick("BENCH22_HARNESS", "benchmark-2.2", "harness")
+DATA = _pick("BENCH22_DATA", "benchmark-2.2", "dataset")
+sys.path.insert(0, HARNESS)
 sys.path.insert(0, HERE)
 
-from loom_system import LoomSystem, _ms  # noqa: E402
+# 考试榜不截展开：成本项已经封顶，截了只掉覆盖（见 `loom_system.py` 顶部那段注释）。
+os.environ.setdefault("LOOM_EXPAND_CHARS", "0")
 
-DATA = os.environ.get(
-	"BENCH22_DATA", os.path.join(HERE, "..", "..", "cmb-2.2", "benchmark-2.2", "dataset")
-)
+from loom_system import LoomSystem, _ms  # noqa: E402
 
 MEM_TOK_PER_CHAR = 0.70
 FLASH_IN_PER_MTOK = 1.296

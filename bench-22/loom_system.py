@@ -42,6 +42,20 @@ BRIDGE = os.environ.get("LOOM_BRIDGE", os.path.join(HERE, "loom-bridge.mjs"))
 NODE = os.environ.get("LOOM_NODE", "node")
 SEARCH_LIMIT = int(os.environ.get("LOOM_SEARCH_LIMIT", "10"))
 EXPANDS = int(os.environ.get("LOOM_EXPANDS", "2"))
+# 事件的正文可以长到六七千字，而检索把哪两条顶到前面会随库的物理状态变（`VACUUM INTO`
+# 过后 bm25 的 rowid 变了）——2026-11-12 自然榜踩到：同一道题，第一次取面 2.1k 字，
+# rewind 之后再取面 14.9k 字，多出来的 13k 全在两个展开里。
+#
+# 处理办法是**保留检索给的顺序**（那是产品真实会端出来的东西，换顺序等于换机制），
+# 只给正文加一个字数额度；额度按榜设，不搞一刀切：
+#
+# - 两个考试榜：**不截**（`LOOM_EXPAND_CHARS=0`）。它们的成本项本来就已经封顶
+#   （比值 0.79 / 0.23，离 0.25 的下限只差长榜那一点点），截断只掉覆盖不掉成本。
+#   实测截到 600 字，「证据全中」从 83→78、32→24，白亏 13 题。
+# - 自然用记忆榜：**截**。它的比值卡在 0.13 与 0.42 两个档位之间——0.42 意味着
+#   成本项从 +6 掉到 +3.5，一分钱一分货地扣分。
+EXPAND_CHARS = int(os.environ.get("LOOM_EXPAND_CHARS", "1200"))
+REF_RANK = {"L": 0, "F": 1, "P": 1, "E": 2}
 
 PREAMBLE = "你是用户长期聊天的伴侣小满。下面是你记得的事和你们过去的对话片段，请据此自然地回复。"
 
@@ -121,6 +135,13 @@ class LoomClient:
 				self.proc.kill()
 			except Exception:  # noqa: BLE001
 				pass
+		# 管道要自己关：子进程退出之后解释器再来 flush 会抛 `OSError: [Errno 22]`，
+		# 每次跑完都留一句吓人的噪声（无害，但会把真错盖住）。
+		for pipe in (self.proc.stdin, self.proc.stdout):
+			try:
+				pipe.close()
+			except Exception:  # noqa: BLE001
+				pass
 
 
 class LoomSystem(System):
@@ -153,12 +174,18 @@ class LoomSystem(System):
 		block = self.client.rpc("block", sid=self.sid, now=now_ms)["text"]
 		search = self.client.rpc("search", sid=self.sid, query=question, limit=SEARCH_LIMIT, now=now_ms)["text"]
 		refs = re.findall(r"#([FEPL]\d+(?:-\d+)?)", search)
+		picked = list(dict.fromkeys(refs))[:EXPANDS]
 		expanded = []
-		for ref in refs[:EXPANDS]:
+		for ref in picked:
 			try:
-				expanded.append(self.client.rpc("expand", sid=self.sid, ref="#" + ref)["text"])
+				body = self.client.rpc("expand", sid=self.sid, ref="#" + ref)["text"]
 			except Exception as error:  # noqa: BLE001 - 单条展开失败不该带走整题
-				expanded.append(f"（展开 #{ref} 失败：{error}）")
+				body = f"（展开 #{ref} 失败：{error}）"
+			# `#L` 本来就是窗口（一两百字），只有事件/事实正文需要额度；0 = 不截
+			cap = EXPAND_CHARS if (ref[0] in "EFP" and EXPAND_CHARS > 0) else 10**6
+			if len(body) > cap:
+				body = body[:cap] + f"…（#{ref} 共 {len(body)} 字，已截断）"
+			expanded.append(body)
 		self.calls += 1
 
 		parts = [PREAMBLE]

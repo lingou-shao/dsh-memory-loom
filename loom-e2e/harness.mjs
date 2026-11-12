@@ -59,8 +59,23 @@ export function mockLlm(reply) {
  * @param options.dbPath - SQLite file to use.
  * @param options.config - overrides merged into the real defaults.
  * @param options.llm - fake `llm` service; omitting it runs the rule-only mode.
+ * @param options.startTurns - `{ sessionId: n }`, 从这个轮次号接着数。
+ *
+ * @param options.settleRounds - 每轮之后等几个 15 ms 的 macrotask，默认 4（=60 ms）。
+ *
+ *   探针一轮几十毫秒就行，重放一万两千轮时这 60 ms 就是 **12 分钟**的纯睡眠：
+ *   2026-11-12 自然榜跑 43 分钟，其中 77% 在 `setTimeout`。规则路径上的整合是
+ *   同步的（`agent/turn-stopping` 里跑完才返回），跨轮只靠微任务，所以重放
+ *   大批历史时可以降到 1；`bench-22` 的桥就是这么用的。
+ * @param options.startTurns - `{ sessionId: n }`，从这个轮次号接着数。
+ *
+ *   `turns` 是**进程内**的 Map，而自然用记忆榜的 `rewind` 会把实例整个重建
+ *   （整库快照 → `createLoom()`）。不传这个种子，重建后编号从 1 重新数，新灌的
+ *   第五轮和库里已有的第五轮同号，而 `turnSpan` 取的是 `MIN(id)..MAX(id)`——
+ *   一轮的区间立刻横跨整段历史。2026-11-12 自然榜取面 9672 token 中位、
+ *   单个指针吐出 10 万字，病根就在这里（见 `bench-22/probe-rewind-turns.mjs`）。
  */
-export function createLoom({ dbPath, config = {}, llm, presetTools = [] }) {
+export function createLoom({ dbPath, config = {}, llm, presetTools = [], startTurns = {}, settleRounds = 4 }) {
   const shared = { sections: new Map(), contexts: new Map(), handlers: new Map(), tools: new Map(), disposers: [] };
   const systemPrompt = createShared(shared);
   /*
@@ -109,7 +124,7 @@ export function createLoom({ dbPath, config = {}, llm, presetTools = [] }) {
 
   const agents = new Map();
   const clocks = new Map();
-  const turns = new Map();
+  const turns = new Map(Object.entries(startTurns).map(([id, n]) => [id, Number(n)]));
 
   const agentOf = (sessionId) => {
     let agent = agents.get(sessionId);
@@ -132,7 +147,7 @@ export function createLoom({ dbPath, config = {}, llm, presetTools = [] }) {
     }
   };
 
-  const settle = async (rounds = 4) => {
+  const settle = async (rounds = settleRounds) => {
     for (let i = 0; i < rounds; i++) await new Promise((resolve) => setTimeout(resolve, 15));
   };
 
@@ -169,7 +184,7 @@ export function createLoom({ dbPath, config = {}, llm, presetTools = [] }) {
       time: at + 1000,
     });
     emit('agent/turn-stopping', { agent: agentOf(sessionId) });
-    await settle();
+    if (settleRounds > 0) await settle(settleRounds);
     return { turn, at };
   }
 

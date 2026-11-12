@@ -55,10 +55,29 @@ let dbPath = '';
 let snapSeq = 0;
 /** 已灌入的轮数。`mark()` 对外报的就是它——**幂等**，rewind 之后还是同一个数。 */
 let fed = 0;
+/**
+ * 每个会话灌到第几轮，回退后拿它给新的实例当起点。
+ *
+ * 不传这个种子，`rewind` 重建出来的实例会把编号从 1 重新数起：库里已有的
+ * 「第 5 轮」和新灌的「第 5 轮」同号，而 `turnSpan` 取 `MIN(id)..MAX(id)`，
+ * 于是一轮的区间横跨整段历史——2026-11-12 自然榜的 9672 token 中位、单个指针
+ * 吐出 10 万字，全是这一个重号引起的（`probe-rewind-turns.mjs` 有断言）。
+ */
+const fedOf = new Map();
 /** 快照序号 → { file, fed }。rewind 只认序号。 */
 const snaps = new Map();
 let workDir = '';
 const CONFIG = () => ({ consolidation: { triggerTokens: 0 } });
+/**
+ * 每轮之后等几个 15 ms 的 macrotask。harness 缺省 4（60 ms），重放一万两千轮
+ * 就是 **十二分钟纯睡眠**——2026-11-12 自然榜跑 43 分钟，77% 在这里。
+ *
+ * 降到 1 是量出来的：120 轮上 78→31 ms，而 `memoryBlock` 与 `memory_search`
+ * **逐字相同**、`pend/facts/events` 三个计数也相同（`probe-ingest-cost.mjs`）。
+ * 不能降到 0：那时整合跟不上，`consolidated = 0` 的行会积到上百条，取到的
+ * 是另一份记忆。
+ */
+const SETTLE_ROUNDS = Number(process.env.LOOM_SETTLE_ROUNDS ?? 1);
 
 /**
  * 把当前库冻结成一个快照文件。
@@ -78,7 +97,7 @@ function snapshot() {
 	} finally {
 		side.close();
 	}
-	snaps.set(seq, { file: target, fed });
+	snaps.set(seq, { file: target, fed, fedOf: new Map(fedOf) });
 	/* 只留最近两个：评测程序总是「mark → 灌尾巴 → rewind 回刚那个 token」的
 	 * 单调流程，更早的快照不会再被点名，留着就是每题 12 MB 的堆积
 	 * （自然榜 536 题就是 6 GB）。留两个是为了 mark 被重复调用时不至于把
@@ -122,7 +141,11 @@ async function restore(token) {
 	}
 	fs.copyFileSync(entry.file, target);
 	dbPath = target;
-	loom = createLoom({ dbPath, config: CONFIG() });
+	/* 轮次计数器必须跟着快照一起回退：库回到 mark 那一刻，编号也得回到那一刻。
+	 * 少做这一步，之后每一轮都会和库里的旧轮次同号（见 `fedOf` 的注释）。 */
+	fedOf.clear();
+	for (const [id, n] of entry.fedOf ?? []) fedOf.set(id, n);
+	loom = createLoom({ dbPath, config: CONFIG(), startTurns: Object.fromEntries(fedOf), settleRounds: SETTLE_ROUNDS });
 	fed = entry.fed;
 	/* 比这个快照更新的快照全部作废：它们记录的是一个已经被我们扔掉的状态。 */
 	for (const [seq, other] of [...snaps]) {
@@ -139,13 +162,35 @@ const ops = {
 		workDir = msg.workDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'loom22-'));
 		fs.mkdirSync(workDir, { recursive: true });
 		fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-		loom = createLoom({ dbPath, config: { ...CONFIG(), ...(msg.config ?? {}) } });
+		/* 库可能已经有内容（重开一份旧库做复算）。轮次计数从库里接上，
+		 * 否则 `mark()` 报的已灌轮数和库里的实际轮数对不上。 */
+		fedOf.clear();
+		try {
+			const db = new DatabaseSync(dbPath, { readOnly: true });
+			try {
+				for (const row of db.prepare('SELECT session_id AS sid, MAX(turn) AS n FROM l0 GROUP BY session_id').all()) {
+					fedOf.set(String(row.sid), Number(row.n));
+				}
+			} finally {
+				db.close();
+			}
+		} catch {
+			// 新库：文件还不存在，从 0 开始
+		}
+		fed = [...fedOf.values()].reduce((sum, n) => sum + n, 0);
+		loom = createLoom({
+			dbPath,
+			config: { ...CONFIG(), ...(msg.config ?? {}) },
+			startTurns: Object.fromEntries(fedOf),
+			settleRounds: SETTLE_ROUNDS,
+		});
 		return { db: dbPath, dir: workDir };
 	},
 	async turn(msg) {
 		clock = Number(msg.at);
 		await loom.turn(msg.sid, msg.user, msg.assistant, { at: Number(msg.at) });
 		fed += 1;
+		fedOf.set(String(msg.sid), (fedOf.get(String(msg.sid)) ?? 0) + 1);
 		return {};
 	},
 	block(msg) {
@@ -186,9 +231,11 @@ const ops = {
 	usedTurns(msg) {
 		const db = new DatabaseSync(dbPath, { readOnly: true });
 		try {
-			const stmt = db.prepare(
-				'SELECT (SELECT COUNT(*) FROM l0 b WHERE b.session_id = a.session_id AND b.role = \'user\' AND b.id <= a.id) AS turn FROM l0 a WHERE a.id >= ? AND a.id <= ?',
-			);
+			/* 直接读 `l0.turn`，不要用「数前面有多少条 user 行」那个相关子查询：
+			 * 它是 O(区间 × 全表)，一个覆盖 3000 行的 `#L` 指针能跑 **145 秒**
+			 * （2026-11-12 自然榜跑到第 24 题时的实测）。两种写法在同一批行上
+			 * 逐值相同（拿 12 轮的干净库对过三分区间），所以换掉是纯提速。 */
+			const stmt = db.prepare('SELECT DISTINCT turn FROM l0 WHERE id >= ? AND id <= ?');
 			const out = new Set();
 			for (const span of msg.spans ?? []) {
 				const [from, to] = span;
@@ -246,7 +293,9 @@ const ops = {
 		const db = new DatabaseSync(dbPath, { readOnly: true });
 		try {
 			const row = db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(id),0) AS top FROM l0').get();
-			return { rows: row.n, top: row.top };
+			/* `db` 也一起报：`rewind` 之后当前库换成了 `work-<n>.db`，
+			 * 外部拿原来的路径读会读到一个已经被扔掉的状态（差一整个尾巴）。 */
+			return { rows: row.n, top: row.top, db: dbPath };
 		} finally {
 			db.close();
 		}

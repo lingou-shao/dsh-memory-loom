@@ -19,10 +19,12 @@ import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-HARNESS = os.environ.get(
-	"BENCH22_HARNESS",
+_cands = [
+	os.environ.get("BENCH22_HARNESS") or "",
 	os.path.join(HERE, "..", "..", "cmb-2.2", "benchmark-2.2", "harness"),
-)
+	os.path.join(os.path.expanduser("~"), "Desktop", "cmb-2.2", "benchmark-2.2", "harness"),
+]
+HARNESS = next((c for c in _cands if c and os.path.isdir(c)), _cands[1])
 if not os.path.isdir(HARNESS):
 	sys.stderr.write(f"找不到 harness：{os.path.abspath(HARNESS)}\n设 BENCH22_HARNESS 指向 benchmark-2.2/harness\n")
 	sys.exit(2)
