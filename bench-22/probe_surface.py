@@ -112,6 +112,8 @@ def main():
 
 	os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
 	rows = []
+	# 边跑边落盘：整卷要 80 分钟，写一次结尾的做法被中断过一回，M01 那一小时全丢了。
+	out = open(args.out, "w", encoding="utf-8")
 	started = time.time()
 	for p in personas:
 		person = [i for i in items if i["persona"] == p]
@@ -144,8 +146,7 @@ def main():
 				h, w = covered(prompt_sq, row["user"])
 				hit += h
 				tot += w
-			rows.append(
-				{
+			row_out = {
 					"id": item["id"],
 					"persona": p,
 					"cutoff_turn": item["cutoff_turn"],
@@ -159,14 +160,14 @@ def main():
 					"ev_total": tot,
 					"cover_full": bool(tot) and hit == tot,
 					"cover_any": bool(hit),
-				}
-			)
+			}
+			rows.append(row_out)
+			out.write(json.dumps(row_out, ensure_ascii=False) + "\n")
+			out.flush()
 		system.close()
 		print(f"{p} 取面完成，{time.time() - t0:.0f}s", flush=True)
 
-	with open(args.out, "w", encoding="utf-8") as fh:
-		for row in rows:
-			fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+	out.close()
 
 	print(f"\n=== 汇总（{len(rows)} 题，{time.time() - started:.0f}s）===", flush=True)
 	board = {"M01": "short", "M02": "long"}
