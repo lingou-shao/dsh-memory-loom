@@ -97,3 +97,7 @@ loom-e2e/backups/
 
 # 每个版本的测试脚手架快照（probe-upgrade 用，可随时重建）
 loom-e2e-*.zip
+
+# Benchmark 2.2 适配器的本地临时目录与取面产物（*.jsonl 上面已忽略）
+.tmp-bridge/
+bench-22/work/
