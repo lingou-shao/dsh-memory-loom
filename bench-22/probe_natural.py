@@ -295,10 +295,13 @@ def main():
 				# 每 5 题核一次库的形态：l0 行数应当接近 2×已灌轮数。rewind 如果没真回退，
 				# 行数会一路堆上去、turn 编号还会重号——那之后所有 used_turns 都不可信。
 				st = system.client.rpc("stat")
-				spent = time.time() - started
+				# 用**本段**起点算 ETA，不能用整个 run 的 `started`：M02 开头的均值里
+				# 会摊进 M01 那五百多秒，显示出来是 57 分钟，实际这一段只花 14 分钟。
+				# （2026-11-12 的复盘：45 分钟那个数是 2.1 全卷 212 题的，76 题一直是 20 分钟级。）
+				spent = time.time() - t0
 				left = spent / (n + 1) * (len(todo) - n - 1)
 				say(
-					f"  [{n + 1}/{len(todo)}] 灌到第 {pos} 轮，{spent:.0f}s"
+					f"  [{n + 1}/{len(todo)}] 灌到第 {pos} 轮，本段 {spent:.0f}s / 全程 {time.time() - started:.0f}s"
 					f"（剩 ~{left / 60:.0f} 分）l0 {st['rows']} 行 / mark {tok} 轮"
 				)
 		system.close()
