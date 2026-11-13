@@ -502,7 +502,7 @@ score = (similarity × strength + emotion − layerPenalty)
 | 标记 | 触发 | 含义 |
 |---|---|---|
 | `（待确认）` | 模型抽取且自报 confidence < 0.6（规则路径抽的是原话，不标） | 这是推断的，不是他说的 |
-| `（可能已过时）` | 与当前话共享 ≥45% 词汇且否定/数字不一致 | 现在的说法优先 |
+| `（可能已过时）` | 与当前话共享 ≥45% 词汇且**命题**否定/数字不一致（「不错」「差不多」「忍不住」这类固定搭配不算否定） | 现在的说法优先 |
 | `（语气偏冲）` 等 | 事件 valence/arousal 非中性 | 这话当时的口气 |
 | `（旧值）` | 槽位链上被 superseded 的那节 | 这是历史版本，不是当前值 |
 
@@ -792,11 +792,11 @@ DSH 的工具名全局唯一，重名会让整个插件加载失败——所以�
 
 | 贴什么 | 例子 | 特点 |
 |---|---|---|
-| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.69/dsh-memory-loom-0.2.69.tgz` | 版本钉死，装到的就是这一版 |
+| **Release 里的 tarball**（推荐） | `https://github.com/lingou-shao/dsh-memory-loom/releases/download/v0.2.70/dsh-memory-loom-0.2.70.tgz` | 版本钉死，装到的就是这一版 |
 | **GitHub 仓库地址** | `https://github.com/lingou-shao/dsh-memory-loom` | 跟随 `main`，每次装到的内容会变 |
 | **本地目录** | `D:\code\dsh-memory-loom` | 必须写**绝对路径**（相对路径会被 DSH 拒绝），先 clone 再填 |
 
-离线 / 内网用 `npm install ./dsh-memory-loom-0.2.69.tgz`；手动挂载则把包放进 profile 的 `node_modules`，并在 bundle 列表里加 `dsh-memory-loom`（包内 `cordis.patch.yml` 会被组合器读取，`path` 必填——对话的长期记录不该落在启动目录里，临时试用可以设 `:memory:`）。
+离线 / 内网用 `npm install ./dsh-memory-loom-0.2.70.tgz`；手动挂载则把包放进 profile 的 `node_modules`，并在 bundle 列表里加 `dsh-memory-loom`（包内 `cordis.patch.yml` 会被组合器读取，`path` 必填——对话的长期记录不该落在启动目录里，临时试用可以设 `:memory:`）。
 
 > **贴本地 tarball 的要注意**：DSH 会把你给的源**原样**记成 profile 的依赖。贴本地文件就写成 `"dsh-memory-loom": "file:C:/Users/you/Desktop/xxx.tgz"`——这个绝对路径变成了长期依赖，tgz 一旦被挪走，再遇到「重新解析依赖」（lockfile 丢失或重生成、pnpm store 被 prune、换机器）就会报 `Could not install from ... as it does not exist`。规避办法：tgz 别放桌面/下载目录，或贴 Release 的 HTTPS 直链，或贴 git 地址。
 
@@ -819,7 +819,7 @@ DSH 的工具名全局唯一，重名会让整个插件加载失败——所以�
 1. **先备份库**（`%USERPROFILE%\.dsh\memory\loom.db`）。新代码第一次加载会 `ALTER TABLE` 加列，备份是为了有退路。
 2. 装新版。
 3. **把 DSH 完全退出再打开**（不是新开会话，是重启进程）。
-4. 用 `memory_doctor` 第一行确认：`运行 0.2.69 · 库 schema v7`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版；新代码没跑起来时它根本打不出来。
+4. 用 `memory_doctor` 第一行确认：`运行 0.2.70 · 库 schema v7`。**这一行是唯一不会撒谎的证据**——它由代码自己打印，跑的是哪版就报哪版；新代码没跑起来时它根本打不出来。
 
 ### 6.5 装完怎么确认
 
@@ -1007,7 +1007,7 @@ npm test        # 单元自测
 
 ### 9.3 冲突：当前对话永远优先
 
-协议里固定一条规则：**当前对话永远优先于记忆块**。此外做一次确定性检测——候选事实与当前这句话共享足够词汇（containment ≥ 0.45 且 ≥3 个共同 token），却在否定词或数字上不一致时，标「可能已过时」并乘 0.85。不额外调用模型。
+协议里固定一条规则：**当前对话永远优先于记忆块**。此外做一次确定性检测——候选事实与当前这句话共享足够词汇（containment ≥ 0.45 且 ≥3 个共同 token），却在否定词或数字上不一致时，标「可能已过时」并乘 0.85。不额外调用模型。否定是**命题**层面的，判之前先剥掉「不错 / 差不多 / 忍不住 / 不好意思 / 不算 / 差点没」这一族固定搭配——它们含否定字，整词却是肯定或弱化语气。2.2 语料里这一族占全部否定字的 2.4%（1,383 / 56,667），不剥掉会把一条一致的记忆标成矛盾：权重减半、块里多印一句「这两条说的不一样」，而这个误判没有任何症状。
 
 ### 9.4 语气：只标注，不单独注入
 
@@ -1184,7 +1184,7 @@ sqlite3 "$DSH_HOME/memory/loom.db" ".backup '$HOME/backup/loom-$(date +%F).db'"
 
 注释里有大量 `Q11` / `Q20` / `Q23` / `Q43` / `Q56` / `Q61` / `Q62` / `Q63` / `Q64` / `Q65` / `Q66` 这样的引用。它们是早期设计问答的编号（问题 11、20……），指向"这个参数为什么是这个值"的原始决策记录。**编号本身没有索引了**，但每处引用旁边的注释都写清了理由，按注释读即可。
 
-逐版的施工记录也在那里：[`docs/design.md`](https://github.com/lingou-shao/dsh-memory-loom/blob/main/docs/design.md)（633 KB，不随 npm 包发布，只在仓库里）。它按版本顺序记录了 v0.2.9 到 v0.2.69 每一版修了什么、踩到什么——**读它之前先读本文的 §3**，否则容易把"某一版的补丁"误当成"架构的一部分"。本文的 §1.1、§3 的绝大多数事实都是从那份记录里核对出来的。
+逐版的施工记录也在那里：[`docs/design.md`](https://github.com/lingou-shao/dsh-memory-loom/blob/main/docs/design.md)（633 KB，不随 npm 包发布，只在仓库里）。它按版本顺序记录了 v0.2.9 到 v0.2.70 每一版修了什么、踩到什么——**读它之前先读本文的 §3**，否则容易把"某一版的补丁"误当成"架构的一部分"。本文的 §1.1、§3 的绝大多数事实都是从那份记录里核对出来的。
 
 ### 10.4 这份文档自身的边界
 
