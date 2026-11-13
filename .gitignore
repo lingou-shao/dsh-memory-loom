@@ -101,3 +101,7 @@ loom-e2e-*.zip
 # Benchmark 2.2 适配器的本地临时目录与取面产物（*.jsonl 上面已忽略）
 .tmp-bridge/
 bench-22/work/
+
+# 探针的临时副本：带内部导出的 lib 拷贝、A/B 穷举对账脚本
+bench-22/.probe-lib.mjs
+bench-22/.eq*.mjs
