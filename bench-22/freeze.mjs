@@ -94,7 +94,9 @@ const record = {
 		timezone: process.env.TZ ?? '(system)',
 		loom_search_limit: process.env.LOOM_SEARCH_LIMIT ?? null,
 		loom_expands: process.env.LOOM_EXPANDS ?? null,
-		loom_expand_chars: process.env.LOOM_EXPAND_CHARS ?? null
+		loom_expand_chars: process.env.LOOM_EXPAND_CHARS ?? null,
+		// 归因那条路（§120）：0 时 `used_turns` 只认 `#L` 与常驻块回查。
+		loom_ref_turns: process.env.LOOM_REF_TURNS ?? '(默认 开)'
 	}
 };
 
