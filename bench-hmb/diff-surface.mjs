@@ -16,11 +16,20 @@ const covered = (row, field) => row.facts.length > 0 && row.facts.every((fact) =
 
 const [baseName, candName] = process.argv.slice(2);
 if (baseName === void 0 || candName === void 0) {
-	console.error('用法: node diff-surface.mjs <baseline.jsonl> <candidate.jsonl>');
+	console.error('用法: node diff-surface.mjs <baseline.jsonl> <candidate.jsonl> [--allow-loss]');
 	process.exit(1);
 }
+/*
+ * 判据是**变坏集合为空**，不是「总数没降」（§117，取自外部验收计划 A1/A2）。
+ *
+ * 两个数一样时，「+3 / −3」和「一格没动」看起来是同一件事，实际不是：前者说明这次改动
+ * 换了三样东西，只是恰好抵平；后者说明它没碰到面。而回退（−1）在总数里会被任何一点
+ * 增益掩盖，所以判定必须看集合。默认一旦有变坏就以非零退出，让 CI 与 `&&` 链能拦住。
+ */
+const allowLoss = process.argv.includes('--allow-loss');
 const base = read(baseName);
 const cand = read(candName);
+let lost = 0;
 
 for (const field of ['toolR10', 'searchR10', 'blockR10']) {
 	const gain = [];
@@ -33,8 +42,12 @@ for (const field of ['toolR10', 'searchR10', 'blockR10']) {
 		if (a === b) continue;
 		(b ? gain : loss).push({ id, question: row.question });
 	}
+	lost += loss.length;
 	console.error(`${field}: 变好 ${gain.length} · 变差 ${loss.length}`);
 	for (const one of gain) console.error(`   + ${one.id}  ${one.question.replace(/\n/gu, ' | ').slice(0, 56)}`);
 	for (const one of loss) console.error(`   - ${one.id}  ${one.question.replace(/\n/gu, ' | ').slice(0, 56)}`);
 	console.error('');
 }
+
+console.error(lost === 0 ? '判定：变坏集合为空 ✓' : `判定：变坏集合有 ${lost} 题 ✗（修掉它们，或加 --allow-loss 只做诊断）`);
+if (lost > 0 && !allowLoss) process.exit(1);

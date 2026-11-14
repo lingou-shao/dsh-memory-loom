@@ -82,7 +82,9 @@ def main():
 	ap.add_argument("--out", default=os.path.join(HERE, "work", "rank-0278.jsonl"))
 	ap.add_argument("--persona", default="both")
 	ap.add_argument("--limit", type=int, default=0)
+	ap.add_argument("--ks", default="10,50", help="comma list of seats to ask for")
 	args = ap.parse_args()
+	KS = [int(x) for x in args.ks.split(",") if x.strip()]
 
 	items = [i for i in load_items(DATA) if i.get("split") == "dev"]
 	hist = load_histories(DATA)
@@ -111,15 +113,17 @@ def main():
 				now = _ms(it["now"])
 				client.rpc("block", sid=p, now=now)
 				texts = {}
-				for lim in (10, 50):
+				for lim in KS:
 					texts[lim] = client.rpc("search", sid=p, query=it["question"], limit=lim, now=now)["text"]
 				dbpath = client.rpc("stat")["db"]
 				db = sqlite3.connect(f"file:{dbpath}?mode=ro", uri=True)
 				try:
 					got = {}
+					chars = {}
 					for lim, text in texts.items():
 						refs = [m[2] for m in REF.finditer(text)]
 						got[lim] = resolve(db, refs)
+						chars[lim] = len(text)
 				finally:
 					db.close()
 				# bm25：同样的历史，官方实现，排名顺序可取
@@ -128,10 +132,14 @@ def main():
 				row = {
 					"id": it["id"], "persona": p, "cutoff": it["cutoff_turn"],
 					"ev": [int(t) for t in ((key_by_id.get(it["id"]) or {}).get("evidence_turns") or [])],
-					"loom10": got[10], "loom50": got[50],
+					"loom": {str(k): got[k] for k in KS},
+					"chars": {str(k): chars[k] for k in KS},
 					"bm25_turns": bturns,
 					"bm25_prompt": len(b.prompt),
 				}
+				# 老字段留着：之前的分析脚本按 `loom10` / `loom50` 读
+				row["loom10"] = got.get(10, [])
+				row["loom50"] = got.get(50, [])
 				fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 				fh.flush()
 				if n % 40 == 0:

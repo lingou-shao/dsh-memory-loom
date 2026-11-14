@@ -333,6 +333,65 @@ const ops = {
 		}
 	},
 	/**
+	 * `#F12` / `#E34` / `#P3` / `#L120-121` → 它们指向的轮次。
+	 *
+	 * 检索段里的每一行只有编号，没有轮次；而 `usedTurns` 只认 `#L` 区间，所以那些
+	 * 行**即使正文就在提示词里**，也不会被算进 `used_turns`。§113.2 把这个漏记量
+	 * 到了 13.4 pt：10 条检索结果里最多 2 条（被展开成原话的那两条）算数。
+	 *
+	 * 这里按产品的**来源列**解回轮次，与 `sources` 走同一批列（`facts.source_ids` /
+	 * `events.l0_from..l0_to` / `preferences.source_l0`），不做文本猜。实测两套库的
+	 * `source_ids` 跨轮数全部等于 1（M01 806 条、M02 5,402 条），所以这种解回不是
+	 * 「一条事实代表十轮」的放大。
+	 *
+	 * 返回的是**轮次**，不是行号：行号一轮两行，拿它当轮次会少算一半（`surface-21`
+	 * 第一版就这么错过）。
+	 */
+	turnsOfRefs(msg) {
+		const db = new DatabaseSync(dbPath, { readOnly: true });
+		try {
+			const turns = new Set();
+			const byRange = db.prepare('SELECT DISTINCT turn FROM l0 WHERE id >= ? AND id <= ?');
+			const byId = db.prepare('SELECT turn FROM l0 WHERE id = ?');
+			const addRange = (from, to) => {
+				for (const row of byRange.all(Number(from), Number(to))) turns.add(Number(row.turn));
+			};
+			const addIds = (ids) => {
+				for (const id of ids) {
+					const row = byId.get(Number(id));
+					if (row !== undefined) turns.add(Number(row.turn));
+				}
+			};
+			for (const raw of msg.refs ?? []) {
+				const ref = String(raw).replace(/^#/u, '');
+				const kind = ref[0];
+				const body = ref.slice(1);
+				const [lo, hi] = body.split('-');
+				if (kind === 'L') {
+					addRange(Number(lo), Number(hi ?? lo));
+				} else if (kind === 'E') {
+					const row = db.prepare('SELECT l0_from, l0_to FROM events WHERE id = ?').get(Number(lo));
+					if (row !== undefined) addRange(row.l0_from, row.l0_to);
+				} else if (kind === 'F') {
+					const row = db.prepare('SELECT source_ids FROM facts WHERE id = ?').get(Number(lo));
+					if (row !== undefined) {
+						try {
+							addIds(JSON.parse(row.source_ids ?? '[]'));
+						} catch {
+							// 坏 JSON：这一条不计，宁可少记，不可错记
+						}
+					}
+				} else if (kind === 'P') {
+					const row = db.prepare('SELECT source_l0 FROM preferences WHERE id = ?').get(Number(lo));
+					if (row !== undefined && row.source_l0 !== null) addIds([row.source_l0]);
+				}
+			}
+			return { turns: [...turns].sort((a, b) => a - b) };
+		} finally {
+			db.close();
+		}
+	},
+	/**
 	 * 注入块里的一行文字 → 它来自哪些 l0 行。
 	 *
 	 * 常驻块是**没有引用标记的纯文本**（`- [09-01 · 事实] 我养了只猫`），但它的

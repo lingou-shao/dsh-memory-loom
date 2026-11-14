@@ -55,6 +55,9 @@ EXPANDS = int(os.environ.get("LOOM_EXPANDS", "2"))
 # - 自然用记忆榜：**截**。它的比值卡在 0.13 与 0.42 两个档位之间——0.42 意味着
 #   成本项从 +6 掉到 +3.5，一分钱一分货地扣分。
 EXPAND_CHARS = int(os.environ.get("LOOM_EXPAND_CHARS", "1200"))
+# 关掉「检索行的来源轮也算进 used_turns」这条路，只给 A/B 用（默认开）。
+# 关掉时回到 0.2.78 的口径：`used_turns` 只认 `#L` 区间与常驻块回查。
+REF_TURNS = os.environ.get("LOOM_REF_TURNS", "1") != "0"
 REF_RANK = {"L": 0, "F": 1, "P": 1, "E": 2}
 
 PREAMBLE = "你是用户长期聊天的伴侣小满。下面是你记得的事和你们过去的对话片段，请据此自然地回复。"
@@ -203,6 +206,17 @@ class LoomSystem(System):
 		if lines:
 			spans.extend(self.client.rpc("sources", sid=self.sid, lines=lines)["spans"])
 		used = self.client.rpc("usedTurns", sid=self.sid, spans=spans)["turns"] if spans else []
+		# 检索段里的 `#F` / `#E` / `#P` 行**正文就在提示词里**，但它们不带轮次，
+		# 上面那条 `#L` 正则看不见。不补这一句，`used_turns` 只认被展开成原话的
+		# 那两条，覆盖率会低 13.4 pt（§113.2）。
+		#
+		# 解的是产品的来源列，不是文本相似：`facts.source_ids` 是抽这句时读的行号，
+		# `events` 有 `l0_from..l0_to`。所以这不是「把没端出来的东西算成端出来了」，
+		# 而是「把端出来了但没记账的东西记上」。
+		if refs:
+			extra = self.client.rpc("turnsOfRefs", sid=self.sid, refs=refs)["turns"]
+			if extra:
+				used = sorted(set(used) | set(int(t) for t in extra))
 		return Retrieval(prompt, used, {"chars": len(prompt), "refs": len(refs), "block_lines": len(lines)})
 
 	# ---------------------------------------------------------------- 回退
