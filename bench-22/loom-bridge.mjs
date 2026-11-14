@@ -35,7 +35,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, StatementSync } from 'node:sqlite';
 import { createLoom } from '../loom-e2e/harness.mjs';
 
 /* stdout 是协议，产品内部任何 console 输出都必须赶到 stderr，否则一个
@@ -53,6 +53,58 @@ Date.now = () => clock;
 let loom = null;
 let dbPath = '';
 let snapSeq = 0;
+const TRACE = process.env.LOOM_TRACE === '1';
+let trace = { n: 0, ms: 0, max: 0 };
+
+/* `LOOM_TRACE_SQL=1`：按 SQL 模板聚合**执行**时间，随每 100 轮的 trace 一起
+ * 打到 stderr。`probe-hot-path.mjs` 里同一套打点，这里只是搬到真正慢的那条
+ * 进程里——同进程复刻量不出台阶，就只能问桥自己「慢在哪个语句」。 */
+const SQL_TRACE = process.env.LOOM_TRACE_SQL === '1';
+let sqlBucket = SQL_TRACE ? new Map() : null;
+if (SQL_TRACE) {
+	for (const name of ['run', 'all', 'get']) {
+		const orig = StatementSync.prototype[name];
+		StatementSync.prototype[name] = function (...a) {
+			if (sqlBucket === null) return orig.apply(this, a);
+			const began = performance.now();
+			try {
+				return orig.apply(this, a);
+			} finally {
+				const key = String(this.sourceSQL ?? '?').replace(/\s+/g, ' ').trim().slice(0, 100);
+				const one = sqlBucket.get(key) ?? { n: 0, ms: 0 };
+				one.n += 1;
+				one.ms += performance.now() - began;
+				sqlBucket.set(key, one);
+			}
+		};
+	}
+	const prepare = DatabaseSync.prototype.prepare;
+	DatabaseSync.prototype.prepare = function (sql, ...rest) {
+		const stmt = prepare.call(this, sql, ...rest);
+		try {
+			Object.defineProperty(stmt, 'sourceSQL', { value: String(sql), enumerable: false });
+		} catch {
+			/* 不可写就算了 */
+		}
+		return stmt;
+	};
+	/* `exec` 也要打点：第一版只包了 run/all/get，慢的那个窗口里六条语句加起来
+	 * 才 8 ms，而每轮 140 ms——剩下的钱在没被包住的那条路上。 */
+	const exec = DatabaseSync.prototype.exec;
+	DatabaseSync.prototype.exec = function (sql) {
+		if (sqlBucket === null) return exec.call(this, sql);
+		const began = performance.now();
+		try {
+			return exec.call(this, sql);
+		} finally {
+			const key = `EXEC ${String(sql).replace(/\s+/g, ' ').trim().slice(0, 90)}`;
+			const one = sqlBucket.get(key) ?? { n: 0, ms: 0 };
+			one.n += 1;
+			one.ms += performance.now() - began;
+			sqlBucket.set(key, one);
+		}
+	};
+}
 /** 已灌入的轮数。`mark()` 对外报的就是它——**幂等**，rewind 之后还是同一个数。 */
 let fed = 0;
 /**
@@ -205,7 +257,24 @@ const ops = {
 	},
 	async turn(msg) {
 		clock = Number(msg.at);
+		/* `LOOM_TRACE=1` 把服务端每轮耗时打到 stderr（stdout 是协议，不能碰）。
+		 * 用来分开「产品真的变慢」和「RPC/进程这一层变慢」——两边读数长得一样。 */
+		const began = TRACE ? performance.now() : 0;
 		await loom.turn(msg.sid, msg.user, msg.assistant, { at: Number(msg.at) });
+		if (TRACE) {
+			const ms = performance.now() - began;
+			trace.n += 1;
+			trace.ms += ms;
+			trace.max = Math.max(trace.max, ms);
+			if (trace.n % 100 === 0) {
+				console.error(`[trace] 第 ${fed + 1} 轮  均 ${(trace.ms / trace.n).toFixed(1)} ms  峰 ${trace.max.toFixed(0)} ms`);
+				for (const [sql, one] of [...(sqlBucket ?? new Map()).entries()].sort((a, b) => b[1].ms - a[1].ms).slice(0, 6)) {
+					console.error(`    ${(one.ms / 1000).toFixed(2).padStart(6)}s ${String(one.n).padStart(5)}次 ${(one.ms / one.n).toFixed(2).padStart(7)}ms/次  ${sql}`);
+				}
+				trace = { n: 0, ms: 0, max: 0 };
+				if (SQL_TRACE) sqlBucket = new Map();
+			}
+		}
 		fed += 1;
 		fedOf.set(String(msg.sid), (fedOf.get(String(msg.sid)) ?? 0) + 1);
 		return {};
