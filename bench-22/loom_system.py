@@ -213,11 +213,29 @@ class LoomSystem(System):
 		# 解的是产品的来源列，不是文本相似：`facts.source_ids` 是抽这句时读的行号，
 		# `events` 有 `l0_from..l0_to`。所以这不是「把没端出来的东西算成端出来了」，
 		# 而是「把端出来了但没记账的东西记上」。
+		#
+		# 两条路的轮次**都记进 meta**（`used_base` / `used_refs`），`used_turns` 只做并集。
+		# 理由：提示词在 `used_turns` 之前就拼完了，记账改不了上面任何一个字，所以
+		# 「并 / 不并」是同一个提示词上的两种读法。分两次跑着比，会把 §116.4 那个时序
+		# 噪声混进 A/B（同一版本同一天两次跑，提示词差 10–80 字）。一次跑、事后分账，
+		# 差值是零噪声的。
+		base = [int(t) for t in used]
+		extra = []
 		if refs:
-			extra = self.client.rpc("turnsOfRefs", sid=self.sid, refs=refs)["turns"]
-			if extra:
-				used = sorted(set(used) | set(int(t) for t in extra))
-		return Retrieval(prompt, used, {"chars": len(prompt), "refs": len(refs), "block_lines": len(lines)})
+			extra = sorted({int(t) for t in self.client.rpc("turnsOfRefs", sid=self.sid, refs=refs)["turns"]})
+		if extra and REF_TURNS:
+			used = sorted(set(base) | set(extra))
+		return Retrieval(
+			prompt,
+			used,
+			{
+				"chars": len(prompt),
+				"refs": len(refs),
+				"block_lines": len(lines),
+				"used_base": base,
+				"used_refs": extra,
+			},
+		)
 
 	# ---------------------------------------------------------------- 回退
 
