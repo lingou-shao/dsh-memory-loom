@@ -83,6 +83,8 @@ def main():
 	base_chars = {}
 	for persona in ("M01", "M02", "全部"):
 		sub = rows if persona == "全部" else [r for r in rows if r["persona"] == persona]
+		if not sub:
+			continue
 		for k in ks:
 			hit = 0
 			ctrl = 0.0
