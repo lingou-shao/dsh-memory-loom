@@ -46,13 +46,28 @@ jobs:
         run: npm test
 
       - name: 端到端探针
-        # 42 个脚本（36 探针 + 6 场景），每个独立建库、跑完自己删；harness.mjs 是脚手架不是用例。
+        # 68 个脚本（62 探针 + 6 场景），每个独立建库、跑完自己删；harness.mjs 是脚手架不是用例。
         # 不 fail-fast：一次把坏的全看完，比修一个跑一次快。
+        #
+        # 失败的探针名要**不登录也能看见**：`::error` 会写成注解，而注解是公开可读的
+        # （GET /repos/{owner}/{repo}/check-runs/{id}/annotations），日志本身要管理员权限。
+        # 0.2.72 那次红，就是因为只能看到「某一步失败」，只能按「Linux 和 Windows 差在
+        # 哪里」硬猜——猜了三轮才对上。注解里带上探针名和它自己的 FAIL 行，以后一眼定位。
         run: |
           fail=0
           for f in loom-e2e/*.mjs; do
             case "$f" in */harness.mjs) continue;; esac
+            log="$(mktemp)"
             printf '\n── %s\n' "$f"
-            node "$f" || fail=1
+            if node "$f" > "$log" 2>&1; then
+              tail -n 1 "$log"
+            else
+              fail=1
+              cat "$log"
+              detail="$(grep -a -m3 -F 'FAIL' "$log" | sed 's/^[[:space:]]*//' | tr '\n' '|' | sed 's/%/%25/g; s/|[|]*$//' | cut -c1-800)"
+              [ -n "$detail" ] || detail="$(tail -n 3 "$log" | sed 's/^[[:space:]]*//' | tr '\n' '|' | sed 's/%/%25/g; s/|[|]*$//' | cut -c1-800)"
+              echo "::error file=$f,title=探针失败：$(basename "$f")::$detail"
+            fi
+            rm -f "$log"
           done
           exit "$fail"

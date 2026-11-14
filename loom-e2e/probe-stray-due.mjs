@@ -22,6 +22,20 @@ import { DatabaseSync } from 'node:sqlite';
 import { createLoom } from './harness.mjs';
 
 const SESSION = 'probe-stray-due';
+/**
+ * 时区必须显式钉住，理由不是「为了稳」而是**它会把结论改掉**：
+ * `memory_doctor` 有一条自检——没配 timezone 且运行时解析成 UTC 时报 ✗
+ * （「日期判断会整体偏八小时」，§101 doctor）。于是同一个干净库，
+ *
+ *    EAST8 机器 → `结论：未发现故障` → 断言绿
+ *    UTC 机器（容器/CI 默认） → `结论：发现 1 处问题` → 断言红
+ *
+ * 2026-11-14 CI 就是这么红的：Linux runner 是 UTC，两个 node 版本一起挂，
+ * 而本地（UTC+8）全绿，看读数完全看不出来。这条探针要验的是「存量行会被体检
+ * 看见」，不是时区自检，所以把部署时区钉成东八区——它的主题与时区无关，结论
+ * 就不该随机器变。
+ */
+const TZ = 'Asia/Shanghai';
 const root = mkdtempSync(join(tmpdir(), 'loom-stray-'));
 const dbPath = join(root, 'loom.db');
 
@@ -39,7 +53,7 @@ function check(label, ok, detail = '') {
 
 try {
   // ── 1. 干净库：写一条普通事实，医生不该报 ────────────────────────────
-  const first = createLoom({ dbPath });
+  const first = createLoom({ dbPath, config: { timezone: TZ } });
   await first.call('memory_write', { text: '用户在写一个记忆插件', kind: 'fact' }, SESSION);
   // 第二条用来覆盖 superseded：被取代的行照样会被 factLine 渲染，检测不能只看 active。
   await first.call('memory_write', { text: '用户上次用的是另一个存储引擎', kind: 'fact' }, SESSION);
@@ -62,7 +76,7 @@ try {
   db.close();
 
   // ── 3. 医生必须把它算成问题，并说出清哪几个字段 ──────────────────────
-  const second = createLoom({ dbPath });
+  const second = createLoom({ dbPath, config: { timezone: TZ } });
   const dirty = String(await second.call('memory_doctor', {}, SESSION));
   check('报出「2 条非计划记忆仍带期限」', dirty.includes('2 条非计划记忆仍带期限'), dirty.split('\n').find((l) => l.includes('非计划')) ?? '(没有这一行)');
   check('结论把它算作问题', /结论：发现 \d+ 处问题/u.test(dirty));
@@ -76,7 +90,7 @@ try {
   db2.prepare("UPDATE facts SET expires_at = NULL, due_from = NULL, expired_at = NULL, ttl = 'none' WHERE kind <> 'plan'").run();
   db2.close();
 
-  const third = createLoom({ dbPath });
+  const third = createLoom({ dbPath, config: { timezone: TZ } });
   const healed = String(await third.call('memory_doctor', {}, SESSION));
   check('清理后不再报', !healed.includes('非计划记忆仍带期限'));
   check('清理后结论回到「未发现故障」', healed.includes('未发现故障'));
