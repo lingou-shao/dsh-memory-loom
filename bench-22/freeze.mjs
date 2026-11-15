@@ -58,6 +58,8 @@ const THRESHOLDS = [
 	'retrieval.tailBeyond',
 	'retrieval.rareTail',
 	'retrieval.tailReserve',
+	'retrieval.tailRareOnly',
+	'retrieval.eventQuote',
 	'retrieval.rareInHits',
 	'retrieval.dueTodayMax',
 	'consolidation.batchSize'
