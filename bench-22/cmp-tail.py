@@ -40,6 +40,12 @@ def grams(text):
 	return {clean[i] + clean[i + 1] for i in range(len(clean) - 1)}
 
 
+def chars8(text):
+	"""8 字窗口：覆盖率按字算时用它，2-gram 会把「同主题」当成「同一句」。"""
+	clean = "".join(CJK.findall(text))
+	return {clean[i:i + 8] for i in range(len(clean) - 7)} if len(clean) >= 8 else set()
+
+
 def sections(prompt):
 	tail = prompt.split("【检索到的记忆】", 1)
 	if len(tail) < 2:
@@ -110,6 +116,7 @@ def main():
 		rb, ra = [], []
 		tb, ta = Counter(), Counter()
 		qb, qa, qc = [], [], []
+		db8, da8 = [], []
 		for sid in ids:
 			k = key.get(sid) or {}
 			turns = set(int(t) for t in k.get("evidence_turns") or []) & hist[persona]
@@ -142,6 +149,10 @@ def main():
 			ta[tier(arm[sid]["prompt"], evk, span)] += 1
 
 			req = [x for x in (k.get("rubric") or {}).get("required") or [] if len(grams(x)) >= 3]
+			turn8 = chars8(raw)
+			if turn8:
+				db8.append(len(turn8 & chars8(base[sid]["prompt"])) / len(turn8))
+				da8.append(len(turn8 & chars8(arm[sid]["prompt"])) / len(turn8))
 			if req:
 				pset, aset = grams(base[sid]["prompt"]), grams(arm[sid]["prompt"])
 				rs = grams(raw)
@@ -161,6 +172,11 @@ def main():
 		if qb:
 			print("  答案要素    提示词 %.3f -> %.3f · 证据原文天花板 %.3f（%d 题）" % (
 				statistics.mean(qb), statistics.mean(qa), statistics.mean(qc), len(qb)))
+		if db8:
+			print("  证据字符    8-gram 中位 %.2f -> %.2f · 均值 %.2f -> %.2f · >=0.5 的题 %d -> %d" % (
+				statistics.median(db8), statistics.median(da8),
+				statistics.mean(db8), statistics.mean(da8),
+				sum(1 for v in db8 if v >= .5), sum(1 for v in da8 if v >= .5)))
 		print()
 
 
