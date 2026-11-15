@@ -89,6 +89,7 @@ def main():
 	ap.add_argument("--weights", default="", help="扫多个权重，逗号分隔，例如 0.2,0.3,0.5,1.0")
 	ap.add_argument("--append", action="store_true", help="也量「body 单独一张表、只做追加档」的方案")
 	ap.add_argument("--limit", type=int, default=0)
+	ap.add_argument("--dump-dropped", default="", help="把「闸门后证据行一个不剩」的题 id 写到这个文件")
 	ap.add_argument("--gate", type=float, default=0.0, help="只保留过得了这个 containment 闸门的行（产品的 relaxMinOverlap=0.05）")
 	ap.add_argument("--gate-body", action="store_true", help="闸门的 haystack 也带上原文（判据一起改）")
 	ap.add_argument("--gate-adaptive", type=float, default=0.0,
@@ -123,6 +124,7 @@ def main():
 	keys = {r["id"]: [int(t) for t in (r.get("evidence_turns") or [])] for r in jl(os.path.join(DATA, "review-only", "answer-key.jsonl"))}
 	items = [r for r in jl(os.path.join(DATA, "exam-inputs.jsonl")) if r.get("persona") == args.persona]
 
+	dropped = []
 	W = args.weight
 	WEIGHTS = [float(x) for x in args.weights.split(",")] if args.weights else [W]
 	KEYS = ["2stage"] if args.two_stage else WEIGHTS
@@ -167,6 +169,12 @@ def main():
 		# 只看「含证据轮」的那些行——它们才是覆盖率的分母
 		gold = [ev["id"] for ev in avail if turns_of[ev["id"]] & ev_turns]
 		if not gold:
+			"""
+			闸门把这条证据行挡掉了：`containment(query, 摘要) < gate`，它进不了
+			候选池。这批题就是「判据读渲染文本」的代价，单独记下来——它们的
+			覆盖率由原话通道兜，兜不兜得住是另一件事。
+			"""
+			dropped.append(sid)
 			continue
 
 		"""
@@ -287,6 +295,11 @@ def main():
 	with open(path, "w", encoding="utf-8") as fh:
 		for r in out:
 			fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+	if args.dump_dropped and dropped:
+		with open(args.dump_dropped, "w", encoding="utf-8") as fh:
+			for sid in dropped:
+				fh.write(sid + "\n")
+		print(f"  闸门后无证据行的题 {len(dropped)} 道 → {args.dump_dropped}")
 	print()
 	print(f"  逐题产物 {os.path.relpath(path, os.path.dirname(HERE))}")
 
