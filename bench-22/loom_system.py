@@ -58,6 +58,12 @@ EXPAND_CHARS = int(os.environ.get("LOOM_EXPAND_CHARS", "1200"))
 # 关掉「检索行的来源轮也算进 used_turns」这条路，只给 A/B 用（默认开）。
 # 关掉时回到 0.2.78 的口径：`used_turns` 只认 `#L` 区间与常驻块回查。
 REF_TURNS = os.environ.get("LOOM_REF_TURNS", "1") != "0"
+# 产品配置的覆盖项，JSON，例如 `LOOM_CONFIG='{"retrieval":{"tailBeyond":true}}'`。
+#
+# 只为了让「同一个二进制的两个旋钮位置」能在同批里跑：`ctx-only.py` 走的是官方
+# `run_persona`，它按 `REGISTRY` 造系统，没有地方传 config。缺省空 = 产品默认，
+# 四套读数一个字节都不变。
+CONFIG_OVERRIDE = json.loads(os.environ.get("LOOM_CONFIG") or "{}")
 REF_RANK = {"L": 0, "F": 1, "P": 1, "E": 2}
 
 PREAMBLE = "你是用户长期聊天的伴侣小满。下面是你记得的事和你们过去的对话片段，请据此自然地回复。"
@@ -109,7 +115,15 @@ class LoomClient:
 
 		self.work_dir = work_dir or tempfile.mkdtemp(prefix="loom22-")
 		db = db or os.path.join(self.work_dir, "loom.db")
-		opened = self.rpc("open", db=db, workDir=self.work_dir, config=config or {})
+		merged = dict(CONFIG_OVERRIDE)
+		for key, value in (config or {}).items():
+			# 只合并一层：覆盖项按产品自己的分区写（`{"retrieval": {...}}`），
+			# 深合并会把分区内的其他键一起换掉，反而更难解释差在哪。
+			if isinstance(value, dict) and isinstance(merged.get(key), dict):
+				merged[key] = {**merged[key], **value}
+			else:
+				merged[key] = value
+		opened = self.rpc("open", db=db, workDir=self.work_dir, config=merged)
 		self.db = opened["db"]
 
 	def rpc(self, op, **kw):

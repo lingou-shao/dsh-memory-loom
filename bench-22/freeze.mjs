@@ -56,6 +56,9 @@ const THRESHOLDS = [
 	'retrieval.maxItems',
 	'retrieval.rawPreview',
 	'retrieval.tailBeyond',
+	'retrieval.rareTail',
+	'retrieval.tailReserve',
+	'retrieval.rareInHits',
 	'retrieval.dueTodayMax',
 	'consolidation.batchSize'
 ];
