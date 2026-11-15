@@ -53,7 +53,11 @@ const RETRIEVAL = {
   // 常驻块里的「今天该做的事」（§100）。产品默认已打开；`--no-duetoday` 用来复现
   // 打开之前的读数（714 块 132 / 并 690）。
   ...(process.argv.includes('--duetoday') ? { dueToday: true } : {}),
-  ...(process.argv.includes('--no-duetoday') ? { dueToday: false } : {})
+  ...(process.argv.includes('--no-duetoday') ? { dueToday: false } : {}),
+  // 事件原话列（§126）：`--no-body` 复现加这一列之前的读数。
+  ...(process.argv.includes('--no-body') ? { eventBody: 0 } : {}),
+  // 只靠原话列命中的行压多少（§126.6）：1 = 不压，0.4 = 压到末位（默认）。
+  ...(process.argv.includes('--bodypenalty') ? { eventBodyPenalty: Number(argOf('bodypenalty', 0.4)) } : {})
 };
 
 for (const need of [

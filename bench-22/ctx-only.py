@@ -78,7 +78,12 @@ def main():
 		outdir = os.path.join(args.out, p)
 		os.makedirs(outdir, exist_ok=True)
 		t1 = time.time()
-		leaks = run_persona(ns, DATA, hist, p, items_all, outdir, _NoGateway(), None)
+		# `--limit` 是**每人**多少题。`items_all` 按 id 排序后前 N 条全是 M01，
+		# 用全局截断时 M02 拿到 0 题、连 contexts.jsonl 都不写，看起来像崩溃。
+		mine = [i for i in items_all if i["id"].startswith(p)]
+		if args.limit:
+			mine = sorted(mine, key=lambda x: x["id"])[: args.limit]
+		leaks = run_persona(ns, DATA, hist, p, mine, outdir, _NoGateway(), None)
 		path = os.path.join(outdir, "contexts.jsonl")
 		rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
 		chars = sum(len(r["prompt"]) for r in rows)

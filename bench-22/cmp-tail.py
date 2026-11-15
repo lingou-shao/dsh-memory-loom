@@ -89,7 +89,10 @@ def main():
 	args = ap.parse_args()
 
 	key = {r["id"]: r for r in jl(os.path.join(DATA, "review-only", "answer-key.jsonl"))}
-	cov_base = {r["id"]: r.get("cov_union", 0) for r in jl(os.path.join(args.base, "ab-turns.jsonl"))}
+	_cov_path = os.path.join(args.base, "ab-turns.jsonl")
+	# 合并文件只在 `ab-turns.py` 跑过之后才有；没有就用 `used_turns` 现算，
+	# 两边的口径都是「证据轮 ∩ 历史轮」按轮次求并集，数值应当一致。
+	cov_base = {r["id"]: r.get("cov_union", 0) for r in jl(_cov_path)} if os.path.exists(_cov_path) else {}
 	# `ab-turns.py` 的口径是「证据轮 ∩ 历史轮」：题库键里偶尔有历史里不存在的轮次，
 	# 那几轮永远不可能出现在提示词里，不排掉会把两边的分母搞成不一样。
 	hist = {
@@ -125,7 +128,8 @@ def main():
 			n += 1
 			union = set(int(t) for t in (arm[sid].get("used_turns") or []))
 			a = round(len(turns & union) / len(turns), 4)
-			b = cov_base.get(sid, 0.0)
+			baseUnion = set(int(t) for t in (base[sid].get("used_turns") or []))
+			b = cov_base.get(sid) if cov_base else round(len(turns & baseUnion) / len(turns), 4)
 			covb += b >= 1.0
 			cova += a >= 1.0
 			hitb += b > 0
